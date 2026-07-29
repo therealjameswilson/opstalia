@@ -1,0 +1,31 @@
+{
+  "body": {
+    "hits": {
+      "total": { "value": 1 },
+      "hits": [
+        {
+          "_id": "1634221",
+          "_source": {
+            "record": {
+              "naId": 1634221,
+              "title": "Photograph of Richard M. Nixon and Elvis Presley at the White House",
+              "coverageStartDate": { "year": 1970, "month": 12, "day": 21 },
+              "coverageEndDate": { "year": 1970, "month": 12, "day": 21 },
+              "levelOfDescription": "item",
+              "creators": [{ "heading": "Nixon Presidential Materials Staff" }],
+              "scopeAndContentNote": "Official photograph metadata.",
+              "ancestors": [{ "title": "White House Photo Office Collection", "levelOfDescription": "series", "naId": 123 }],
+              "digitalObjects": [
+                {
+                  "objectUrl": "https://catalog.archives.gov/id/1634221",
+                  "thumbnailUrl": "https://catalog.archives.gov/id/1634221",
+                  "mimeType": "image/jpeg"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    }
+  }
+}

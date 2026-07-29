@@ -1,0 +1,63 @@
+name: Feature request
+description: Propose a product, research-workflow, accessibility, or documentation improvement
+title: "feature: "
+labels:
+  - enhancement
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Keep proposals within Opstalia 1.0's public, unclassified Internet boundary. Do not include classified information, CUI, PII, credentials, or restricted record content. Opstalia-c and any future closed-network synchronization are out of scope for the public build.
+
+  - type: checkboxes
+    id: safety
+    attributes:
+      label: Public-information confirmation
+      options:
+        - label: I confirm that this request contains only unclassified, publicly releasable information.
+          required: true
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Research problem
+      description: What public-record research problem would this solve?
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed behavior
+      description: Describe the user-visible outcome and any source or provenance implications.
+    validations:
+      required: true
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Product area
+      options:
+        - Search planning
+        - Source adapter
+        - Normalization and ranking
+        - Version comparison
+        - Redaction or exemption analysis
+        - Reporting and export
+        - Privacy or security
+        - Accessibility
+        - Documentation
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Official references
+      description: Provide official government documentation or public URLs that support the request, when applicable.
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered

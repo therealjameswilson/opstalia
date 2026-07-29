@@ -1,0 +1,188 @@
+import { useCallback, useEffect, useMemo, useState } from "react";
+import type { SearchProject } from "./core/types";
+import { createDemoProjects } from "./data/demo-projects";
+import { listProjects, saveProject } from "./persistence/database";
+import { AboutPage, PrivacyPage, SecurityPage } from "./pages/InfoPages";
+import { ComparePage } from "./pages/ComparePage";
+import { CoveragePage } from "./pages/CoveragePage";
+import { DashboardPage } from "./pages/DashboardPage";
+import { ExemptionPage } from "./pages/ExemptionPage";
+import { ProjectsPage } from "./pages/ProjectsPage";
+import { SavedPage } from "./pages/SavedPage";
+import { SearchPage } from "./pages/SearchPage";
+
+type View =
+  | "dashboard"
+  | "new-search"
+  | "projects"
+  | "saved"
+  | "compare"
+  | "coverage"
+  | "exemptions"
+  | "about"
+  | "security"
+  | "privacy";
+
+const NAVIGATION: Array<{ id: View; label: string }> = [
+  { id: "new-search", label: "New Search" },
+  { id: "projects", label: "Search Projects" },
+  { id: "saved", label: "Saved Records" },
+  { id: "compare", label: "Compare Versions" },
+  { id: "coverage", label: "Source Coverage" },
+  { id: "exemptions", label: "Exemption Guide" },
+  { id: "about", label: "About" },
+  { id: "security", label: "Security" }
+];
+
+function initialView(): View {
+  const hash = location.hash.replace(/^#/, "").split("?")[0];
+  if (hash === "search") return "new-search";
+  return ["dashboard", "new-search", "projects", "saved", "compare", "coverage", "exemptions", "about", "security", "privacy"].includes(hash)
+    ? (hash as View)
+    : "dashboard";
+}
+
+export default function App() {
+  const builtInDemos = useMemo(createDemoProjects, []);
+  const [view, setView] = useState<View>(initialView);
+  const [projects, setProjects] = useState<SearchProject[]>(builtInDemos);
+  const [currentProject, setCurrentProject] = useState<SearchProject | undefined>();
+  const [compareIds, setCompareIds] = useState<string[]>([]);
+  const [mobileOpen, setMobileOpen] = useState(false);
+
+  const refreshProjects = useCallback(async () => {
+    const stored = await listProjects();
+    const merged = new Map<string, SearchProject>(builtInDemos.map((project) => [project.id, project]));
+    for (const project of stored) merged.set(project.id, project);
+    setProjects([...merged.values()]);
+  }, [builtInDemos]);
+
+  useEffect(() => {
+    void refreshProjects();
+  }, [refreshProjects]);
+
+  useEffect(() => {
+    const onHash = () => setView(initialView());
+    window.addEventListener("hashchange", onHash);
+    return () => window.removeEventListener("hashchange", onHash);
+  }, []);
+
+  const navigate = (next: string, clearProject = false) => {
+    const nextView = next as View;
+    if (clearProject) setCurrentProject(undefined);
+    setView(nextView);
+    setMobileOpen(false);
+    if (!location.hash.startsWith("#search?") || nextView !== "new-search") history.pushState(null, "", `#${nextView}`);
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  };
+
+  const updateProject = async (project: SearchProject) => {
+    setCurrentProject(project);
+    setProjects((current) => {
+      const next = [...current.filter((item) => item.id !== project.id), project];
+      return next;
+    });
+    if (!project.privateMode) {
+      await saveProject(project);
+      await refreshProjects();
+    }
+  };
+
+  const openProject = (project: SearchProject) => {
+    setCurrentProject(project);
+    navigate("new-search");
+  };
+
+  const openCompare = (recordIds: string[]) => {
+    setCompareIds(recordIds);
+    navigate("compare");
+  };
+
+  const mainContent = (() => {
+    switch (view) {
+      case "new-search":
+        return <SearchPage key={currentProject?.id ?? "new"} project={currentProject} onProjectUpdate={updateProject} onCompare={openCompare} />;
+      case "projects":
+        return (
+          <ProjectsPage
+            projects={projects}
+            onProjectsChange={refreshProjects}
+            onOpenProject={openProject}
+            onLoadDemos={async () => {
+              for (const demo of builtInDemos) await saveProject(demo);
+              await refreshProjects();
+            }}
+          />
+        );
+      case "saved":
+        return <SavedPage projects={projects} onOpenProject={openProject} onCompare={openCompare} />;
+      case "compare":
+        return <ComparePage projects={projects} initialRecordIds={compareIds} onProjectUpdate={updateProject} />;
+      case "coverage":
+        return <CoveragePage />;
+      case "exemptions":
+        return <ExemptionPage />;
+      case "about":
+        return <AboutPage />;
+      case "security":
+        return <SecurityPage />;
+      case "privacy":
+        return <PrivacyPage />;
+      default:
+        return <DashboardPage projects={projects} onNavigate={navigate} onOpenProject={openProject} />;
+    }
+  })();
+
+  return (
+    <div className="app-shell">
+      <a className="skip-link" href="#main-content">Skip to main content</a>
+      <div className="independent-banner">
+        Opstalia is an independent research tool and is not an official U.S. Government website.
+      </div>
+      <header className="site-header">
+        <button className="brand" onClick={() => navigate("dashboard")} aria-label="Opstalia dashboard">
+          <span className="brand-mark" aria-hidden="true">O</span>
+          <span><strong>OPSTALIA</strong><small>Declassified Records Search Engine</small></span>
+          <b>1.0</b>
+        </button>
+        <button className="mobile-menu" onClick={() => setMobileOpen((value) => !value)} aria-expanded={mobileOpen} aria-controls="main-navigation">
+          <span aria-hidden="true">☰</span> Menu
+        </button>
+        <nav id="main-navigation" className={mobileOpen ? "open" : ""} aria-label="Primary">
+          {NAVIGATION.map((item) => (
+            <button
+              key={item.id}
+              className={view === item.id ? "active" : ""}
+              aria-current={view === item.id ? "page" : undefined}
+              onClick={() => navigate(item.id, item.id === "new-search")}
+            >
+              {item.label}
+            </button>
+          ))}
+        </nav>
+      </header>
+      <div className="classification-strip">
+        <span>UNCLASSIFIED INTERNET APPLICATION</span>
+        <span>NO OPSTALIA-C CONNECTION</span>
+        <span>OFFICIAL PUBLIC SOURCES ONLY</span>
+      </div>
+      <main id="main-content" className="main-content" tabIndex={-1}>{mainContent}</main>
+      <footer className="site-footer">
+        <div>
+          <span className="brand-mark" aria-hidden="true">O</span>
+          <div>
+            <strong>OPSTALIA 1.0</strong>
+            <p>Search the official record of declassification.</p>
+          </div>
+        </div>
+        <nav aria-label="Footer">
+          <button onClick={() => navigate("about")}>About</button>
+          <button onClick={() => navigate("privacy")}>Privacy</button>
+          <button onClick={() => navigate("security")}>Security</button>
+          <a href="https://github.com/therealjameswilson/opstalia" target="_blank" rel="noopener noreferrer">Source code ↗</a>
+        </nav>
+        <p className="footer-caveat">Use unclassified information only. Official source records and agency determinations control. MIT License.</p>
+      </footer>
+    </div>
+  );
+}

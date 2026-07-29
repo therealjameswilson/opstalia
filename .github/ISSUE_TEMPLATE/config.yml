@@ -1,0 +1,12 @@
+blank_issues_enabled: false
+
+contact_links:
+  - name: Report a security vulnerability privately
+    url: https://github.com/therealjameswilson/opstalia/security/advisories/new
+    about: Do not disclose vulnerabilities, secrets, restricted material, or personal information in a public issue.
+  - name: Read the security policy
+    url: https://github.com/therealjameswilson/opstalia/blob/main/SECURITY.md
+    about: Review Opstalia's security boundary and supported reporting process.
+  - name: Review current source coverage
+    url: https://github.com/therealjameswilson/opstalia/blob/main/docs/SOURCE_COVERAGE.md
+    about: Check whether a repository is integrated, beta, manual, unavailable, planned, or retired.

@@ -1,0 +1,28 @@
+{
+  "commit": "fixture",
+  "coverage": ["frus1981-88v05"],
+  "limitations": ["Recorded fixture"],
+  "records": [
+    {
+      "id": "frus1981-88v05/d308",
+      "volumeId": "frus1981-88v05",
+      "documentId": "d308",
+      "documentNumber": "308",
+      "title": "Memorandum of Conversation",
+      "volumeTitle": "Foreign Relations of the United States, 1981–1988, Volume V",
+      "date": "1986-10-12",
+      "dateDisplay": "October 12, 1986",
+      "persons": ["Reagan, Ronald", "Gorbachev, Mikhail"],
+      "repository": "Ronald Reagan Presidential Library",
+      "collection": "Executive Secretariat",
+      "archivalIdentifier": "Reykjavik",
+      "documentType": "Memorandum",
+      "authors": [],
+      "recipients": [],
+      "sourceNote": "Source: Reagan Library.",
+      "snippet": "The President met with General Secretary Gorbachev at Reykjavik.",
+      "officialUrl": "https://history.state.gov/historicaldocuments/frus1981-88v05/d308",
+      "sourcePath": "fixture.xml"
+    }
+  ]
+}

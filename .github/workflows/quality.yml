@@ -1,0 +1,69 @@
+name: Quality
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: quality-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    name: Lint, test, audit, and build
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      # An unset repository variable becomes an empty string. No backend secret
+      # is required to build or test the public frontend.
+      VITE_API_BASE: ${{ vars.VITE_API_BASE }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v5
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install locked dependencies
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Type-check frontend and Worker
+        run: npm run typecheck
+
+      - name: Run unit tests
+        run: npm run test:unit
+
+      - name: Run integration tests
+        run: npm run test:integration
+
+      - name: Run security tests
+        run: npm run test:security
+
+      - name: Scan tracked files for secrets
+        run: npm run secret:scan
+
+      - name: Audit production and development dependencies
+        run: npm run audit
+
+      - name: Build production frontend
+        run: npm run build
+
+      - name: Install Playwright Chromium
+        run: npx playwright install --with-deps chromium
+
+      - name: Run desktop, mobile, and accessibility workflows
+        run: npm run test:e2e

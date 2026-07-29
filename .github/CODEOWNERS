@@ -1,0 +1,3 @@
+# Opstalia has one repository owner for 1.0. CODEOWNERS makes review
+# responsibility explicit for application, security-boundary, and source data.
+* @therealjameswilson

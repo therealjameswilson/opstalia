@@ -1,0 +1,88 @@
+name: Bug report
+description: Report reproducible behavior that appears incorrect
+title: "bug: "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Opstalia's issue tracker is public. Use unclassified information only. Do not enter, upload, paste, link, or transmit classified information, controlled unclassified information, personally identifiable information, API keys, or other restricted material.
+
+  - type: checkboxes
+    id: safety
+    attributes:
+      label: Public-information confirmation
+      options:
+        - label: I confirm that this report and its attachments contain only unclassified, publicly releasable information and no secrets or personal information.
+          required: true
+
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+      description: Describe the problem without including restricted record content or credentials.
+      placeholder: A concise description of what went wrong.
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Reproduction steps
+      placeholder: |
+        1. Open …
+        2. Select …
+        3. Observe …
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+    validations:
+      required: true
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Affected area
+      options:
+        - Search planning
+        - Federated search
+        - NARA Worker
+        - Results and provenance
+        - Version comparison
+        - Redaction or exemption analysis
+        - Local persistence or export
+        - Accessibility
+        - Documentation
+        - Other
+    validations:
+      required: true
+
+  - type: input
+    id: browser
+    attributes:
+      label: Browser and version
+      placeholder: Firefox 132, Safari 19, Chrome 138
+
+  - type: input
+    id: url
+    attributes:
+      label: Official public source URL, if relevant
+      description: Link only to an approved official U.S. Government domain.
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional public context
+      description: Remove query text, local notes, tokens, headers, and personal information from screenshots or logs.

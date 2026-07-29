@@ -1,0 +1,12 @@
+name = "opstalia-api"
+main = "src/index.ts"
+compatibility_date = "2026-07-29"
+workers_dev = true
+send_metrics = false
+
+[vars]
+FRONTEND_ORIGIN = "https://therealjameswilson.github.io"
+APP_ENV = "production"
+
+[observability]
+enabled = false

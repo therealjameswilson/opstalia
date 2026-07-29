@@ -1,0 +1,108 @@
+{
+  "version": "1.0.0",
+  "validated": "2026-07-29",
+  "warning": "Demonstration data is a checked-in snapshot of public, non-sensitive metadata from the linked official sources. Open the official record to confirm current metadata.",
+  "projects": [
+    {
+      "id": "demo-exact-naid",
+      "name": "Exact match: Nixon and Elvis photograph",
+      "scenario": "A record with an obvious exact identifier match",
+      "target": {
+        "mode": "guided",
+        "titleOrSubject": "Photograph of Richard M. Nixon and Elvis Presley at the White House",
+        "dateFrom": "1970-12-21",
+        "dateTo": "1970-12-21",
+        "identifiers": "NAID 1634221"
+      },
+      "records": [
+        {
+          "sourceId": "nara",
+          "title": "Photograph of Richard M. Nixon and Elvis Presley at the White House",
+          "date": "1970-12-21",
+          "naraNaid": "1634221",
+          "sourceRepository": "National Archives Catalog",
+          "officialUrl": "https://catalog.archives.gov/id/1634221",
+          "recordPageUrl": "https://catalog.archives.gov/id/1634221",
+          "releaseStatus": "not_determined",
+          "determinationBasis": "The fixture confirms an official digitized Catalog record; it does not infer a declassification or full-release status.",
+          "exemptionCodes": []
+        }
+      ]
+    },
+    {
+      "id": "demo-reykjavik-versions",
+      "name": "Probable versions: Reykjavik memorandum",
+      "scenario": "One underlying meeting record in two official repositories or publication forms",
+      "target": {
+        "mode": "guided",
+        "titleOrSubject": "Reykjavik memorandum of conversation Reagan Gorbachev",
+        "dateFrom": "1986-10-12",
+        "dateTo": "1986-10-12",
+        "generalKeywords": "Reykjavik nuclear arms meeting"
+      },
+      "seededRelationship": {
+        "label": "probable_version",
+        "basis": [
+          "Matching October 12, 1986 date",
+          "Matching Reagan-Gorbachev meeting subject and participants",
+          "Matching meeting-time descriptions",
+          "The FRUS item is an official edited publication; the Reagan Library item is an official facsimile, so equivalence still requires review"
+        ]
+      },
+      "records": [
+        {
+          "sourceId": "presidential-libraries",
+          "title": "Reykjavik Memorandum of Conversation",
+          "date": "1986-10-12",
+          "documentType": "Memorandum of conversation",
+          "pageCount": 17,
+          "sourceRepository": "Ronald Reagan Presidential Library",
+          "officialUrl": "https://reaganlibrary.archives.gov/public/documents/reykjavik-memorandum.pdf",
+          "recordPageUrl": "https://reaganlibrary.archives.gov/public/documents/reykjavik-memorandum.pdf",
+          "downloadUrl": "https://reaganlibrary.archives.gov/public/documents/reykjavik-memorandum.pdf",
+          "releaseStatus": "not_determined",
+          "determinationBasis": "Official facsimile available; completeness is not inferred from appearance.",
+          "exemptionCodes": []
+        },
+        {
+          "sourceId": "frus",
+          "title": "Memorandum of Conversation (FRUS Document 308)",
+          "date": "1986-10-12",
+          "documentNumber": "308",
+          "documentType": "Memorandum of conversation",
+          "sourceRepository": "Foreign Relations of the United States",
+          "officialUrl": "https://history.state.gov/historicaldocuments/frus1981-88v05/d308",
+          "recordPageUrl": "https://history.state.gov/historicaldocuments/frus1981-88v05/d308",
+          "releaseStatus": "not_determined",
+          "determinationBasis": "Official FRUS publication; not assumed to be a complete facsimile of the underlying record.",
+          "exemptionCodes": []
+        }
+      ]
+    },
+    {
+      "id": "demo-partial-fbi",
+      "name": "Partial release: FBI iPhone assistance contract",
+      "scenario": "A partial release with visible exemption information",
+      "target": {
+        "mode": "guided",
+        "titleOrSubject": "Contract for Assistance Regarding Syed Farook's iPhone",
+        "originatingAgency": "Federal Bureau of Investigation",
+        "generalKeywords": "contract assistance iPhone"
+      },
+      "records": [
+        {
+          "sourceId": "fbi-vault",
+          "title": "Contract for Assistance Regarding Syed Farook's iPhone, Part 01",
+          "sourceRepository": "FBI Vault",
+          "officialUrl": "https://vault.fbi.gov/Contract%20for%20Assistance%20Regarding%20Syed%20Farooks%20iPhone/Contract%20for%20Assistance%20Regarding%20Syed%20Farooks%20iPhone%20Part%2001%20%28Final%29/at_download/file",
+          "recordPageUrl": "https://vault.fbi.gov/Contract%20for%20Assistance%20Regarding%20Syed%20Farooks%20iPhone/Contract%20for%20Assistance%20Regarding%20Syed%20Farooks%20iPhone%20Part%2001%20%28Final%29",
+          "downloadUrl": "https://vault.fbi.gov/Contract%20for%20Assistance%20Regarding%20Syed%20Farooks%20iPhone/Contract%20for%20Assistance%20Regarding%20Syed%20Farooks%20iPhone%20Part%2001%20%28Final%29/at_download/file",
+          "releaseStatus": "released_in_part",
+          "determinationBasis": "The official transmittal reports 123 pages reviewed, 100 pages released, and deleted-page sheets.",
+          "pageCount": 123,
+          "exemptionCodes": ["b3", "b4", "b6", "b7C", "b7D", "b7E"]
+        }
+      ]
+    }
+  ]
+}

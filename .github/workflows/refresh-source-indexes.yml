@@ -1,0 +1,103 @@
+name: Refresh official-source indexes
+
+on:
+  schedule:
+    # Quarterly, after the common federal reporting-quarter boundary.
+    - cron: "17 12 8 1,4,7,10 *"
+  workflow_dispatch:
+    inputs:
+      create_pull_request:
+        description: Open a pull request when official-source data changes
+        required: true
+        default: true
+        type: boolean
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: refresh-official-source-indexes
+  cancel-in-progress: false
+
+jobs:
+  refresh:
+    name: Rebuild and verify pinned official indexes
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Check out main
+        uses: actions/checkout@v5
+        with:
+          ref: main
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install locked dependencies
+        run: npm ci
+
+      - name: Rebuild official-source indexes
+        run: npm run indexes:refresh
+
+      - name: Discard timestamp-only changes
+        shell: bash
+        run: |
+          for file in public/data/indexes/frus.json public/data/indexes/iscap.json public/data/indexes/ndc.json; do
+            if git cat-file -e "HEAD:${file}" 2>/dev/null &&
+              diff -q \
+                <(git show "HEAD:${file}" | jq -S 'del(.generatedAt)') \
+                <(jq -S 'del(.generatedAt)' "${file}") >/dev/null; then
+              git checkout -- "${file}"
+            fi
+          done
+
+      - name: Validate refreshed indexes
+        run: |
+          npm run test:integration
+          npm run secret:scan
+          npm run build
+
+      - name: Upload review artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: official-source-indexes-${{ github.run_id }}
+          path: public/data/indexes
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Record no-change result
+        if: ${{ hashFiles('public/data/indexes/*.json') != '' }}
+        shell: bash
+        run: |
+          if git diff --quiet -- public/data/indexes; then
+            echo "### Official-source indexes" >> "${GITHUB_STEP_SUMMARY}"
+            echo "No substantive official-source data changes were detected." >> "${GITHUB_STEP_SUMMARY}"
+          fi
+
+      - name: Open review pull request
+        if: ${{ (github.event_name == 'schedule' || inputs.create_pull_request) }}
+        shell: bash
+        run: |
+          if git diff --quiet -- public/data/indexes; then
+            exit 0
+          fi
+
+          branch="automation/source-index-refresh-${GITHUB_RUN_ID}"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git switch -c "${branch}"
+          git add public/data/indexes
+          git commit -m "chore: refresh official-source indexes"
+          git push --set-upstream origin "${branch}"
+
+          gh pr create \
+            --base main \
+            --head "${branch}" \
+            --title "chore: refresh official-source indexes" \
+            --body "Automated rebuild of the checked-in indexes from their configured official sources. Review source hashes, record counts, provenance, and limitations before merging. This workflow never changes source-adapter status or treats a release-list entry as proof of full release."

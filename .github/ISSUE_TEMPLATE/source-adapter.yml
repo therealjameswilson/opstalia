@@ -1,0 +1,84 @@
+name: Official source-adapter request
+description: Propose or correct coverage of an official U.S. Government repository
+title: "source: "
+labels:
+  - source-adapter
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Opstalia accepts only official U.S. Government repositories or government-authenticated collections as release evidence. Do not paste record content, queries, credentials, classified information, CUI, PII, or other restricted material into this public issue.
+
+  - type: checkboxes
+    id: policy
+    attributes:
+      label: Source-policy confirmation
+      options:
+        - label: This is an official U.S. Government repository or government-authenticated collection.
+          required: true
+        - label: The issue contains only unclassified, publicly releasable information and no credentials or personal information.
+          required: true
+
+  - type: input
+    id: name
+    attributes:
+      label: Repository name
+      placeholder: Official display name
+    validations:
+      required: true
+
+  - type: input
+    id: agency
+    attributes:
+      label: Responsible agency
+    validations:
+      required: true
+
+  - type: input
+    id: official_url
+    attributes:
+      label: Official repository URL
+      description: Use the official government domain, not a mirror or secondary citation.
+      placeholder: https://www.example.gov/records/
+    validations:
+      required: true
+
+  - type: input
+    id: documentation
+    attributes:
+      label: Official API or search documentation
+      description: Leave blank if no documented automated interface exists.
+
+  - type: dropdown
+    id: requested_status
+    attributes:
+      label: Requested adapter type
+      options:
+        - Automated integration
+        - Beta build-time index
+        - Manual-search adapter
+        - Correct existing registry metadata
+    validations:
+      required: true
+
+  - type: textarea
+    id: automation
+    attributes:
+      label: Technical evidence
+      description: Describe documented endpoints, authentication, filters, returned fields, rate limits, CORS behavior, and stability.
+
+  - type: textarea
+    id: policy_notes
+    attributes:
+      label: Terms, robots, and access constraints
+      description: Link to the official terms, robots policy, rate-limit guidance, or other automation constraints.
+    validations:
+      required: true
+
+  - type: textarea
+    id: limitations
+    attributes:
+      label: Known limitations and manual fallback
+      description: Explain gaps honestly and include the best official manual-search URL.
+    validations:
+      required: true
