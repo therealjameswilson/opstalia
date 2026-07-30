@@ -67,6 +67,8 @@ describe("official-domain and secret boundaries", () => {
       "https://archives.gov.evil.example/files/research/jfk/releases/2025/0318/124-10167-10383.pdf",
       "https://www.archives.gov/research/jfk/release-2025",
       "https://www.archives.gov/files/other/124-10167-10383.pdf",
+      "https://www.archives.gov/files/research/jfk/releases/2025/0320/124-10167-10383.pdf",
+      "https://www.archives.gov/files/research/jfk/releases/2026/0130/124-10167-10383.pdf",
       "https://www.archives.gov/files/research/jfk/releases/2025/0318/%2F124-10167-10383.pdf",
       "https://www.archives.gov/files/research/jfk/releases/2025/0318/%252F124-10167-10383.pdf",
       "https://www.archives.gov/files/research/jfk/releases/2025/0318/124-10167-10383.pdf?download=1"

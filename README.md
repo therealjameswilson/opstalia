@@ -280,7 +280,7 @@ These commands access official public sources and may change generated data. Rev
 - NTRS and OSTI are official scientific/publication discovery sources, not declassification or full-release determinations.
 - FRUS coverage is 752 documents in three volumes, not the complete FRUS series.
 - ISCAP and NDC searches use build-time snapshots, not live runtime queries.
-- The opt-in NARA JFK adapter is filename/RIF search over a mutable official release-page snapshot, not full-text search or complete JFK Collection coverage. The current NARA table reports March 18, 2025 for every row even though the page now includes later batches, so Opstalia does not infer per-file batch membership from that value.
+- The opt-in NARA JFK adapter is filename/RIF search over a mutable official release-page snapshot, not full-text search or complete JFK Collection coverage. The current NARA table reports March 18, 2025 for every row even though the page now includes later batches, so Opstalia retains that value only in raw index records and does not expose it as a normalized file release date or infer per-file batch membership.
 - Opstalia does not ingest or present the unofficial Doctly JFK corpus as official release evidence.
 - The 133 NDC entries are generally finding-aid or series-level descriptions and may report that records are not online.
 - State FOIA is a user-initiated, prefilled official-search handoff, not an automated adapter; CIA Reading Room search is temporarily unavailable upstream.

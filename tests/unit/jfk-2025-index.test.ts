@@ -68,7 +68,7 @@ describe("official NARA JFK release-page index", () => {
       fileName: "104-10003-10041.PDF",
       rifNumber: "104-10003-10041",
       fileVariant: "",
-      releaseDate: "03/18/2025",
+      sourceReportedRowDate: "03/18/2025",
       releaseStatus: "not_determined"
     });
     expect(parsed.records[1]).toMatchObject({
@@ -80,14 +80,17 @@ describe("official NARA JFK release-page index", () => {
     expect(parsed.records[0].id).not.toBe(parsed.records[1].id);
   });
 
-  it("uses a cautious release status for filenames that visibly say redacted", () => {
+  it("does not infer release status from a filename that says redacted", () => {
     const parsed = parseJfk2025ReleasePage(page(normalRow + variantRow), {
       minimumRecords: 2,
       maximumRecords: 2
     });
     expect(parsed.records[1]).toMatchObject({
       fileVariant: "_redacted_part_1_of_3",
-      releaseStatus: "released_with_redactions_status_unclear"
+      releaseStatus: "not_determined",
+      releaseDeterminationBasis: expect.stringContaining(
+        "filename do not establish"
+      )
     });
   });
 
@@ -108,6 +111,8 @@ describe("official NARA JFK release-page index", () => {
     "https://www.archives.gov/research/jfk/release-2025",
     "https://www.archives.gov/files/research/jfk/releases/2025/0318/not-a-rif.pdf",
     "https://www.archives.gov/files/research/jfk/releases/2025/not-a-batch/104-10003-10041.pdf",
+    "https://www.archives.gov/files/research/jfk/releases/2025/0320/104-10003-10041.pdf",
+    "https://www.archives.gov/files/research/jfk/releases/2026/0130/104-10003-10041.pdf",
     "https://www.archives.gov/files/research/jfk/releases/2025/0318/104-10003-10041.pdf?download=1",
     "https://www.archives.gov/files/research/jfk/releases/2025/0318/104-10003-10041%2fextra.pdf",
     "https://www.archives.gov/files/research/jfk/releases/2025/0318/104-10003-10041%2520copy.pdf",

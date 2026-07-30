@@ -48,7 +48,7 @@ export function canonicalNaraJfkReleasePdf(
     return undefined;
   }
   const match = parsed.pathname.match(
-    /^\/files\/research\/jfk\/releases\/\d{4}\/\d{4}\/([^/]+)$/i
+    /^\/files\/research\/jfk\/releases\/2025\/0318\/([^/]+)$/i
   );
   const fileName = match ? decodePathComponent(match[1]) : undefined;
   const hasControlCharacter = [...(fileName ?? "")].some((character) => {

@@ -63,6 +63,9 @@ describe("repository security posture", () => {
     expect(parsed.records.length).toBeGreaterThanOrEqual(2_000);
     parsed.records.forEach((record) => {
       expect(new URL(record.officialUrl).hostname).toBe("www.archives.gov");
+      expect(new URL(record.officialUrl).pathname).toMatch(
+        /^\/files\/research\/jfk\/releases\/2025\/0318\/[^/]+$/i
+      );
       expect(record.recordPageUrl).toBe(
         "https://www.archives.gov/research/jfk/release-2025"
       );

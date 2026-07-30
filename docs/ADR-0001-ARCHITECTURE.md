@@ -72,9 +72,10 @@ ISCAP and NDC indexes are labeled beta because their upstream table and workbook
 The NARA JFK index is also beta. Its guarded builder reads only the official
 NARA table and emits filename/RIF metadata plus official NARA PDF links. The
 current page includes a 2026 batch while reporting the same March 18, 2025
-value for every row, so the adapter does not infer actual per-file batch
-membership. Unofficial Doctly conversions are excluded from build inputs and
-evidence.
+value for every row, so the adapter retains that value only in raw index
+records and does not expose it as a normalized file release date or infer
+actual per-file batch membership. Unofficial Doctly conversions are excluded
+from build inputs and evidence.
 
 ### 5. Add documented public APIs only with corpus-specific caveats
 

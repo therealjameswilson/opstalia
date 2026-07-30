@@ -94,7 +94,7 @@ describe("local official-source indexes", () => {
                   fileName: "104-10003-10041.pdf",
                   rifNumber: "104-10003-10041",
                   fileVariant: "",
-                  releaseDate: "03/18/2025",
+                  sourceReportedRowDate: "03/18/2025",
                   officialUrl,
                   recordPageUrl:
                     "https://www.archives.gov/research/jfk/release-2025",
@@ -139,10 +139,6 @@ describe("local official-source indexes", () => {
     expect(response.records[0]).toMatchObject({
       title: { value: "104-10003-10041.pdf" },
       documentNumber: { value: "104-10003-10041" },
-      releaseDate: {
-        value: "2025-03-18",
-        source: expect.stringContaining("batch attribution is unresolved")
-      },
       releaseStatus: {
         status: "not_determined",
         humanReview: true
@@ -156,6 +152,10 @@ describe("local official-source indexes", () => {
       }
     });
     expect(response.records[0].date).toBeUndefined();
+    expect(response.records[0].releaseDate).toBeUndefined();
+    expect(response.records[0].textSnippet?.value).toContain(
+      "only in the raw source record"
+    );
     expect(response.records[0].digitalObjects[0]?.url).toBe(officialUrl);
     expect(JSON.stringify(response)).not.toMatch(
       /doctly\.|github\.com\/doctly/i

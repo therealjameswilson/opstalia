@@ -3,16 +3,14 @@ export interface Jfk2025BatchSummary {
   pdfCount: number;
 }
 
-export type Jfk2025ReleaseStatus =
-  | "released_with_redactions_status_unclear"
-  | "not_determined";
+export type Jfk2025ReleaseStatus = "not_determined";
 
 export interface Jfk2025IndexRecord {
   id: string;
   fileName: string;
   rifNumber: string;
   fileVariant: string;
-  releaseDate: string;
+  sourceReportedRowDate: string;
   officialUrl: string;
   sourceHref: string;
   recordPageUrl: string;

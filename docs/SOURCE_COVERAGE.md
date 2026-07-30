@@ -116,7 +116,7 @@ Research reports keep three states distinct: automated searches run by Opstalia,
 - FRUS is an official documentary publication. Bracketed omissions, source notes, and editorial interventions must be read as editorial evidence, not automatically as archival redaction markings.
 - ISCAP release-table entries can link to released documents or decision notifications. Presence in the table does not prove full release.
 - NDC release lists may describe series that completed declassification processing while other access restrictions or FOIA screening remain.
-- The NARA JFK index searches only the current official release-page filenames, RIFs, source-reported table dates, and PDF links. It does not index PDF text, assign true per-file release batches from the inconsistent table, or establish that an absent record was never released.
+- The NARA JFK index searches only the current official release-page filenames and RIFs, then links to official PDFs. It retains the inconsistent table date only in raw index records for audit; it does not expose that value as a normalized file release date, index PDF text, assign true per-file release batches, or establish that an absent record was never released.
 - The unofficial Doctly JFK Markdown conversion is not an Opstalia evidence source. Opstalia does not search its text or use it for citations, metadata, release status, or redaction findings.
 - GovInfo is official publication discovery; NTRS and OSTI are official scientific-and-technical-information discovery. None of those corpus labels alone establishes declassification, FOIA release, or release in full.
 - Agency reading rooms vary in OCR quality, indexing, date fields, and availability.

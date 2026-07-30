@@ -81,13 +81,14 @@ coverage of the JFK Assassination Records Collection.
 
 The current page also lists a January 30, 2026 batch. Nevertheless, every table
 row reports March 18, 2025 and every file appears under the same 2025 path.
-Opstalia therefore preserves the row value as low-confidence source-reported
-metadata but cannot assign an actual tranche or reliable release date to an
-individual file. Multiple files can share one base RIF, including multipart,
-DocID, `multirif`, and `redacted` filename variants.
+Opstalia therefore retains the row value only in the raw index record for
+audit; it does not expose it as a normalized release date or use it for search,
+sorting, ranking, or tranche inference. Multiple files can share one base RIF,
+including multipart, DocID, `multirif`, and `redacted` filename variants.
 
 The adapter does not read PDF text, identify document dates or titles beyond
 the official filename, detect visible redactions, or infer `released_in_full`.
+Every indexed file remains `not_determined` until human review.
 NARA warns that the release may include living-person PII and copyrighted
 material. Researchers must review the unaltered official PDF and applicable
 access conditions.

@@ -204,9 +204,10 @@ The repository ships four static indexes under `public/data/indexes/`:
 These are deployment assets, not claims of complete repository coverage. Refresh scripts fetch official sources during a controlled development build; end-user searches do not scrape those sites at runtime.
 
 The NARA JFK page currently includes a January 2026 batch while reporting
-March 18, 2025 for every row. The adapter preserves that source inconsistency,
-does not infer actual per-file tranche membership, and does not ingest the
-unofficial Doctly Markdown corpus.
+March 18, 2025 for every row. The adapter retains that inconsistency only in
+raw index records for audit; it does not normalize the value as a file release
+date, search it, or infer actual per-file tranche membership. It does not
+ingest the unofficial Doctly Markdown corpus.
 
 ## Release and analysis design
 

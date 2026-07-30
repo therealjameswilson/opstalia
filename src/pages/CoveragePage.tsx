@@ -25,7 +25,7 @@ export function CoveragePage() {
 
   return (
     <>
-      <SectionHeading eyebrow="Source registry · validated 2026-07-29" title="Source coverage">
+      <SectionHeading eyebrow={`Source registry · validated ${sourceRegistryValidated}`} title="Source coverage">
         <p>{sourcePolicyStatement} Automated status means a real adapter exists; manual status means Opstalia prepares a user-initiated official search without pretending to retrieve or normalize the results.</p>
       </SectionHeading>
       <section className="coverage-summary">

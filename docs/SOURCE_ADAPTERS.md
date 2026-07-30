@@ -162,7 +162,7 @@ The schema-version-2 builder locates the canonical workbook header row, retains 
 - **Execution:** client-side, same-origin static index
 - **Coverage:** 2,709 distinct official PDF rows in the current release-page snapshot
 - **Build source:** `https://www.archives.gov/research/jfk/release-2025`
-- **Search fields:** exact RIF, official filename, filename suffix/variant, and source-reported table date
+- **Search fields:** exact RIF, official filename, and filename suffix/variant
 - **PDF content:** not fetched, mirrored, OCRed, or indexed
 
 The guarded builder fetches the single official server-rendered page, locates
@@ -173,10 +173,11 @@ base RIF; a RIF alone is not a safe deduplication key.
 
 NARA's current page contains a January 30, 2026 batch even though its title and
 file paths refer to 2025. Every current row reports `03/18/2025`, so Opstalia
-preserves that table value as low-confidence source-reported metadata but does
-not infer a true per-file batch. A filename containing `redacted` is not a
-visible-redaction finding, and a listed PDF is never classified automatically
-as `released_in_full`.
+retains that table value only in the raw index record for audit. It is not
+searched, normalized as a file release date, used for sorting or ranking, or
+used to infer a true per-file batch. A filename containing `redacted` is not a
+visible-redaction finding; every listed PDF remains `not_determined` until
+human review.
 
 The unofficial Doctly JFK Markdown corpus prompted a coverage comparison, but
 it is not an adapter, build source, runtime dependency, text source, or release

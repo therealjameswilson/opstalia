@@ -80,9 +80,9 @@ const output = {
   distinctRifCount: parsed.distinctRifCount,
   limitations: [
     "This index contains only file-level metadata and official PDF links parsed from the NARA JFK Assassination Records - 2025 Documents Release page. It does not ingest Doctly or any other unofficial copy, OCR, transcript, or repository.",
-    "The source page's per-row NARA Release Date currently does not identify the true release batch: every table row reports 03/18/2025 even though the page's batch summary includes later 2025 releases and a January 30, 2026 release. Opstalia preserves that value only as source-reported metadata and does not infer a batch.",
+    "The source page's per-row NARA Release Date currently does not identify the true release batch: every table row reports 03/18/2025 even though the page's batch summary includes later 2025 releases and a January 30, 2026 release. Opstalia retains that value only in the raw index record for audit; it is not searched, normalized as a file release date, or used to infer a batch.",
     "A shared base RIF does not establish that files are duplicates. Every distinct official URL and filename variant is retained.",
-    "An official file link establishes public availability, not that a copy was released in full, is complete, is unredacted, or is the best available public version.",
+    "An official file link or filename establishes public availability, not that a copy was released in full, is complete, is unredacted, or is the best available public version. Every indexed file therefore uses not_determined pending human review.",
     "NARA warns that records in this collection may contain personally identifiable information and that some material may be subject to copyright."
   ],
   records: parsed.records

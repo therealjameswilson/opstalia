@@ -360,13 +360,11 @@ interface Jfk2025IndexRecord {
   fileName: string;
   rifNumber: string;
   fileVariant: string;
-  releaseDate: string;
+  sourceReportedRowDate: string;
   officialUrl: string;
   recordPageUrl: string;
   searchableText: string;
-  releaseStatus:
-    | "released_with_redactions_status_unclear"
-    | "not_determined";
+  releaseStatus: "not_determined";
   releaseDeterminationBasis: string;
 }
 
@@ -413,15 +411,12 @@ function validateJfk2025Index(value: unknown): asserts value is Jfk2025Index {
       !/^\d{3}-\d{5}-\d{5}$/.test(record.rifNumber) ||
       typeof record.fileVariant !== "string" ||
       record.fileVariant.length > 400 ||
-      typeof record.releaseDate !== "string" ||
-      !/^\d{2}\/\d{2}\/\d{4}$/.test(record.releaseDate) ||
+      typeof record.sourceReportedRowDate !== "string" ||
+      !/^\d{2}\/\d{2}\/\d{4}$/.test(record.sourceReportedRowDate) ||
       record.recordPageUrl !== NARA_JFK_RELEASE_PAGE_URL ||
       typeof record.searchableText !== "string" ||
       record.searchableText.length > 2_000 ||
-      ![
-        "released_with_redactions_status_unclear",
-        "not_determined"
-      ].includes(record.releaseStatus) ||
+      record.releaseStatus !== "not_determined" ||
       typeof record.releaseDeterminationBasis !== "string" ||
       record.releaseDeterminationBasis.length > 2_000 ||
       !locator ||
@@ -435,12 +430,6 @@ function validateJfk2025Index(value: unknown): asserts value is Jfk2025Index {
     }
     urls.add(locator.canonicalUrl);
   }
-}
-
-function normalizeJfkTableReleaseDate(value: string): string | undefined {
-  const usDate = value.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
-  if (usDate) return `${usDate[3]}-${usDate[1]}-${usDate[2]}`;
-  return normalizeDate(value).iso;
 }
 
 export async function searchJfk2025(
@@ -470,9 +459,6 @@ export async function searchJfk2025(
   const records = raw.map((record, indexPosition) => {
     const sourceLabel =
       "NARA JFK 2025 Documents Release table";
-    const normalizedReleaseDate = normalizeJfkTableReleaseDate(
-      record.releaseDate
-    );
     const normalized: NormalizedRecord = {
       id: makeId("nara-jfk-2025", record.id),
       title: sourced(record.fileName, sourceLabel),
@@ -501,13 +487,6 @@ export async function searchJfk2025(
         "Opstalia does not index OCR or document text for this source",
         1
       ),
-      releaseDate: normalizedReleaseDate
-        ? sourced(
-            normalizedReleaseDate,
-            "NARA table value; true per-file batch attribution is unresolved",
-            0.3
-          )
-        : undefined,
       releaseMechanism: sourced(
         "Official NARA JFK assassination-records release page",
         sourceLabel
@@ -520,11 +499,7 @@ export async function searchJfk2025(
         status: record.releaseStatus,
         determinationBasis: record.releaseDeterminationBasis,
         source: sourceLabel,
-        confidence:
-          record.releaseStatus ===
-          "released_with_redactions_status_unclear"
-            ? 0.45
-            : 0.35,
+        confidence: 0.35,
         humanReview: true
       },
       exemptionCodes: [],
@@ -534,7 +509,7 @@ export async function searchJfk2025(
         ...extractIdentifiers(`${record.fileName} ${record.fileVariant}`)
       ].filter((value, position, values) => values.indexOf(value) === position),
       textSnippet: sourced(
-        `Official NARA filename: ${record.fileName}. The table reports ${record.releaseDate || "no release date"}; NARA's current table does not reliably identify each file's actual release batch.`,
+        `Official NARA filename: ${record.fileName}. NARA's source table has an inconsistent row-date field; Opstalia retains it only in the raw source record and does not normalize it as this file's release date.`,
         sourceLabel
       ),
       digitalObjects: [

@@ -689,8 +689,8 @@ export function SearchPage({ project, onProjectUpdate, onCompare }: SearchPagePr
                 )
               ))}
               <p className="fine-print">
-                The optional JFK index searches only filenames, RIF identifiers, source-reported table dates,
-                and PDF links published by NARA. It does not search or admit Doctly text as official evidence.
+                The optional JFK index searches only filenames and RIF identifiers published by NARA,
+                then links to the official PDFs. It does not search or admit Doctly text as official evidence.
               </p>
               <details>
                 <summary>Add another registered official source</summary>

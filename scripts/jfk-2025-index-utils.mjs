@@ -4,7 +4,7 @@ export const JFK_2025_SOURCE_PAGE = "https://www.archives.gov/research/jfk/relea
 export const JFK_2025_PARSER_VERSION = "1.0.0";
 export const JFK_2025_HEADERS = ["Record Number", "NARA Release Date"];
 
-const PDF_PATH_PREFIX = "/files/research/jfk/releases/";
+const PDF_PATH_PREFIX = "/files/research/jfk/releases/2025/0318/";
 const RIF_PATTERN = /^\d{3}-\d{5}-\d{5}/;
 const RELEASE_DATE_PATTERN = /^(?:0[1-9]|1[0-2])\/(?:0[1-9]|[12]\d|3[01])\/\d{4}$/;
 const SAFE_OFFICIAL_HOSTS = new Set(["archives.gov", "www.archives.gov"]);
@@ -101,7 +101,7 @@ export function normalizeOfficialJfkPdfUrl(href, sourcePage = JFK_2025_SOURCE_PA
   const decodedPathname = safeDecodedPathname(url);
   if (
     !decodedPathname.startsWith(PDF_PATH_PREFIX) ||
-    !/^\/files\/research\/jfk\/releases\/\d{4}\/\d{4}\/[^/]+$/.test(decodedPathname)
+    !/^\/files\/research\/jfk\/releases\/2025\/0318\/[^/]+$/i.test(decodedPathname)
   ) {
     throw new Error(`JFK PDF link does not use the official NARA release path: ${url.toString()}`);
   }
@@ -183,14 +183,14 @@ function parseReleaseRows(table, sourcePage) {
     const anchorTag = anchors[0][0].match(/^<a\b[^>]*>/i)?.[0] ?? "";
     const sourceHref = attribute(anchorTag, "href");
     const label = decodeHtml(anchors[0][0]);
-    const releaseDate = decodeHtml(cells[1]);
+    const sourceReportedRowDate = decodeHtml(cells[1]);
     const { officialUrl, fileName } = normalizeOfficialJfkPdfUrl(sourceHref, sourcePage);
     if (label !== fileName) {
       throw new Error(
         `NARA JFK release table row ${rowOffset + 1} file label does not match its official URL`
       );
     }
-    if (!RELEASE_DATE_PATTERN.test(releaseDate)) {
+    if (!RELEASE_DATE_PATTERN.test(sourceReportedRowDate)) {
       throw new Error(`NARA JFK release table row ${rowOffset + 1} has an invalid source-reported date`);
     }
     if (exactUrls.has(officialUrl)) {
@@ -205,13 +205,12 @@ function parseReleaseRows(table, sourcePage) {
     const id = `nara-jfk-2025-${urlHash.slice(0, 24)}`;
     if (exactIds.has(id)) throw new Error(`NARA JFK stable file ID collision: ${id}`);
     exactIds.add(id);
-    const visiblyRedactedVariant = /redacted/i.test(fileVariant);
     records.push({
       id,
       fileName,
       rifNumber,
       fileVariant,
-      releaseDate,
+      sourceReportedRowDate,
       officialUrl,
       sourceHref,
       recordPageUrl: sourcePage,
@@ -220,17 +219,13 @@ function parseReleaseRows(table, sourcePage) {
         "JFK assassination record",
         fileName,
         rifNumber,
-        fileVariant.replace(/[_()]+/g, " "),
-        releaseDate
+        fileVariant.replace(/[_()]+/g, " ")
       ]
         .filter(Boolean)
         .join(" "),
-      releaseStatus: visiblyRedactedVariant
-        ? "released_with_redactions_status_unclear"
-        : "not_determined",
-      releaseDeterminationBasis: visiblyRedactedVariant
-        ? 'The NARA-supplied filename includes "redacted"; the redaction extent and release completeness require human review.'
-        : "The official NARA file link establishes public availability, but the release table does not establish that this copy is complete or unredacted."
+      releaseStatus: "not_determined",
+      releaseDeterminationBasis:
+        "The official NARA file link establishes public availability, but the release table and filename do not establish that this copy is complete, unredacted, or released in full."
     });
   }
   return records;

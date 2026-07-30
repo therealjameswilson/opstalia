@@ -127,7 +127,7 @@ URL. The canonical technical policy is recorded in the `nara`,
 [`data/sources.json`](data/sources.json).
 
 The separate `nara-jfk-2025` adapter is not a Catalog API request. It searches a
-checked-in snapshot of public filenames, RIFs, source-reported table dates, and
+checked-in snapshot of public filenames, RIFs, raw source-table row dates, and
 official NARA PDF URLs parsed from NARA's release page. That snapshot can be
 stored in browser-local projects because it is a public build artifact rather
 than a response from the Catalog API. Opstalia does not include NARA PDF text or

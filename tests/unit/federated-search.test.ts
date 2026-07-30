@@ -202,7 +202,7 @@ describe("federated source orchestration", () => {
               fileName: "104-10003-10041.pdf",
               rifNumber: "104-10003-10041",
               fileVariant: "",
-              releaseDate: "03/18/2025",
+              sourceReportedRowDate: "03/18/2025",
               officialUrl,
               recordPageUrl:
                 "https://www.archives.gov/research/jfk/release-2025",
