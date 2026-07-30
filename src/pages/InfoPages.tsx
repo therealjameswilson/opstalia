@@ -51,8 +51,8 @@ export function SecurityPage() {
           <span aria-hidden="true">→</span>
           <div><strong>Selected official API</strong><span>NARA · GovInfo · NASA NTRS · OSTI</span></div>
         </div>
-        <div className="flow-diagram local-flow" role="img" aria-label="FRUS, ISCAP, and NDC indexes remain local in the browser.">
-          <div><strong>Your browser</strong><span>FRUS · ISCAP · NDC local indexes</span></div>
+        <div className="flow-diagram local-flow" role="img" aria-label="FRUS, ISCAP, NDC, and the optional NARA JFK release-file indexes remain local in the browser.">
+          <div><strong>Your browser</strong><span>FRUS · ISCAP · NDC · NARA JFK release-file indexes</span></div>
           <span aria-hidden="true">↺</span>
           <div><strong>No runtime source request</strong><span>Indexes are pinned and refreshed during a controlled build</span></div>
         </div>
@@ -81,7 +81,7 @@ export function PrivacyPage() {
         <h2>NARA data-minimization rule</h2>
         <p>Current NARA API terms prohibit caching or storing API-returned content. Opstalia therefore keeps NARA responses in memory only. A saved NARA item is reduced to a generated NAID/official-URL locator plus researcher-created review data and is rehydrated only by a later live search.</p>
         <h2>Network data</h2>
-        <p>The GitHub Pages host receives ordinary web requests for application files. Cloudflare receives a POST containing each selected unclassified live-source query. The Worker sends only the needed query and filters to the selected official NARA, GovInfo, NASA NTRS, or OSTI API. Manual adapters contact an official source only after the researcher opens the prepared handoff; that source then receives normal browser request information.</p>
+        <p>The GitHub Pages host receives ordinary web requests for application files and selected same-origin static indexes. FRUS, ISCAP, NDC, and NARA JFK index queries are evaluated in browser memory; the fixed index request does not contain the query and no request goes to Doctly. Cloudflare receives a POST containing each selected unclassified live-source query. The Worker sends only the needed query and filters to the selected official NARA, GovInfo, NASA NTRS, or OSTI API. Manual adapters contact an official source only after the researcher opens the prepared handoff; that source then receives normal browser request information.</p>
         <h2>Logging</h2>
         <p>Application code does not log full queries, request bodies, API keys, authorization headers, or IP addresses. Cloudflare and GitHub may maintain infrastructure logs under their own policies.</p>
       </div>

@@ -1,5 +1,6 @@
 const IDENTIFIER_PATTERNS = [
   /\bNAID[:#\s-]*(\d{4,})\b/gi,
+  /\b\d{3}-\d{5}-\d{5}\b/gi,
   /\b(?:CIA-)?RDP[A-Z0-9-]{8,}\b/gi,
   /\b(?:F|MDR|ISCAP|NDC)-?\d{4}-\d{3,6}(?:-DOCS?\d+)?\b/gi,
   /\b\d{4}-\d{3}(?:-DOCS?\s?\d+(?:-\d+)?)?\b/gi,

@@ -16,8 +16,8 @@ describe("normalization and release-marking parsing", () => {
   });
 
   it("extracts official identifiers without inventing them", () => {
-    expect(extractIdentifiers("NAID 1634221; ISCAP 2015-098; CIA-RDP95-00972R000100210014-3")).toEqual(
-      expect.arrayContaining(["1634221", "2015-098", "CIA-RDP95-00972R000100210014-3"])
+    expect(extractIdentifiers("NAID 1634221; ISCAP 2015-098; CIA-RDP95-00972R000100210014-3; RIF 104-10003-10041")).toEqual(
+      expect.arrayContaining(["1634221", "2015-098", "CIA-RDP95-00972R000100210014-3", "104-10003-10041"])
     );
   });
 

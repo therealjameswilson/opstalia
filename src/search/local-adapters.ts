@@ -11,10 +11,14 @@ import { extractIdentifiers } from "../analysis/identifiers";
 import { normalizeDate } from "../analysis/date";
 import { scoreRecord } from "../analysis/scoring";
 import { determineReleaseStatus } from "../analysis/release-status";
-import { validatePrimaryEvidence } from "../security/url-policy";
+import {
+  canonicalNaraJfkReleasePdf,
+  NARA_JFK_RELEASE_PAGE_URL,
+  validateNormalizedRecordEvidence
+} from "../security/url-policy";
 import { getSource } from "../data/registry";
 
-type IndexName = "frus" | "iscap" | "ndc";
+type IndexName = "frus" | "iscap" | "ndc" | "jfk-2025";
 const indexCache = new Map<IndexName, unknown>();
 
 function sourced<T>(value: T, source: string, confidence = 0.95): SourcedValue<T> {
@@ -59,8 +63,17 @@ function finish(
   const source = getSource(sourceId);
   const filtered = records.filter((record) => {
     if (!source) return false;
-    return validatePrimaryEvidence(record.officialUrl.value, record.provenance, source).allowed;
+    return validateNormalizedRecordEvidence(record, source).allowed;
   });
+  const acceptedRawIds = new Set(
+    filtered
+      .map((record) => record.provenance.rawRecordId)
+      .filter((value): value is string => Boolean(value))
+  );
+  const filteredRawRecords = rawRecords.filter((record) =>
+    acceptedRawIds.has(record.id)
+  );
+  const rejectedCount = records.length - filtered.length;
   const sourceRun: SourceRun = {
     id: makeId("source-run"),
     sourceId,
@@ -68,9 +81,23 @@ function finish(
     startedAt,
     completedAt: new Date().toISOString(),
     resultCount: filtered.length,
-    message: filtered.length ? `${filtered.length} official records matched the local source index.` : "No indexed records matched."
+    message: filtered.length
+      ? `${filtered.length} official records matched the local source index.${rejectedCount ? ` ${rejectedCount} record${rejectedCount === 1 ? "" : "s"} failed the official evidence gate.` : ""}`
+      : rejectedCount
+        ? `${rejectedCount} indexed record${rejectedCount === 1 ? "" : "s"} matched but failed the official evidence gate.`
+        : "No indexed records matched."
   };
-  return { sourceRun, records: filtered, rawRecords, warnings };
+  return {
+    sourceRun,
+    records: filtered,
+    rawRecords: filteredRawRecords,
+    warnings: rejectedCount
+      ? [
+          ...warnings,
+          `${rejectedCount} matching record${rejectedCount === 1 ? "" : "s"} failed official URL, file-path, or provenance validation and did not enter the primary index.`
+        ]
+      : warnings
+  };
 }
 
 interface FrusIndexRecord {
@@ -326,4 +353,222 @@ export async function searchNdc(query: NormalizedSearchQuery, signal?: AbortSign
     return normalized;
   });
   return finish("ndc", startedAt, records, rawRecords, index.limitations);
+}
+
+interface Jfk2025IndexRecord {
+  id: string;
+  fileName: string;
+  rifNumber: string;
+  fileVariant: string;
+  releaseDate: string;
+  officialUrl: string;
+  recordPageUrl: string;
+  searchableText: string;
+  releaseStatus:
+    | "released_with_redactions_status_unclear"
+    | "not_determined";
+  releaseDeterminationBasis: string;
+}
+
+interface Jfk2025Index {
+  sourceId: "nara-jfk-2025";
+  sourcePage: string;
+  limitations: string[];
+  records: Jfk2025IndexRecord[];
+}
+
+function validateJfk2025Index(value: unknown): asserts value is Jfk2025Index {
+  if (!value || typeof value !== "object") {
+    throw new Error("Local NARA JFK index is not an object");
+  }
+  const index = value as Partial<Jfk2025Index>;
+  if (
+    index.sourceId !== "nara-jfk-2025" ||
+    index.sourcePage !== NARA_JFK_RELEASE_PAGE_URL ||
+    !Array.isArray(index.limitations) ||
+    index.limitations.length > 100 ||
+    index.limitations.some(
+      (limitation) =>
+        typeof limitation !== "string" || limitation.length > 3_000
+    ) ||
+    !Array.isArray(index.records) ||
+    index.records.length < 1 ||
+    index.records.length > 5_000
+  ) {
+    throw new Error("Local NARA JFK index metadata failed validation");
+  }
+  const urls = new Set<string>();
+  for (const record of index.records) {
+    const locator =
+      typeof record?.officialUrl === "string"
+        ? canonicalNaraJfkReleasePdf(record.officialUrl)
+        : undefined;
+    if (
+      !record ||
+      typeof record.id !== "string" ||
+      record.id.length > 150 ||
+      typeof record.fileName !== "string" ||
+      record.fileName.length > 500 ||
+      typeof record.rifNumber !== "string" ||
+      !/^\d{3}-\d{5}-\d{5}$/.test(record.rifNumber) ||
+      typeof record.fileVariant !== "string" ||
+      record.fileVariant.length > 400 ||
+      typeof record.releaseDate !== "string" ||
+      !/^\d{2}\/\d{2}\/\d{4}$/.test(record.releaseDate) ||
+      record.recordPageUrl !== NARA_JFK_RELEASE_PAGE_URL ||
+      typeof record.searchableText !== "string" ||
+      record.searchableText.length > 2_000 ||
+      ![
+        "released_with_redactions_status_unclear",
+        "not_determined"
+      ].includes(record.releaseStatus) ||
+      typeof record.releaseDeterminationBasis !== "string" ||
+      record.releaseDeterminationBasis.length > 2_000 ||
+      !locator ||
+      locator.fileName !== record.fileName ||
+      locator.rifNumber !== record.rifNumber ||
+      urls.has(locator.canonicalUrl)
+    ) {
+      throw new Error(
+        `Local NARA JFK index record ${String(record?.id ?? "(unknown)")} failed validation`
+      );
+    }
+    urls.add(locator.canonicalUrl);
+  }
+}
+
+function normalizeJfkTableReleaseDate(value: string): string | undefined {
+  const usDate = value.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+  if (usDate) return `${usDate[3]}-${usDate[1]}-${usDate[2]}`;
+  return normalizeDate(value).iso;
+}
+
+export async function searchJfk2025(
+  query: NormalizedSearchQuery,
+  signal?: AbortSignal
+): Promise<SourceSearchResponse> {
+  const startedAt = new Date().toISOString();
+  const index = await loadIndex<unknown>("jfk-2025", signal);
+  validateJfk2025Index(index);
+  const raw = index.records
+    .filter((record) =>
+      matches(
+        record.searchableText,
+        query.query.text,
+        query.query.kind === "exact_phrase" ||
+          query.query.kind === "identifier"
+      )
+    )
+    .slice(0, query.limit);
+  const retrievalTimestamp = new Date().toISOString();
+  const rawRecords: RawSourceRecord[] = raw.map((record) => ({
+    id: makeId("raw-nara-jfk-2025", record.id),
+    sourceId: "nara-jfk-2025",
+    retrievalTimestamp,
+    payload: record
+  }));
+  const records = raw.map((record, indexPosition) => {
+    const sourceLabel =
+      "NARA JFK 2025 Documents Release table";
+    const normalizedReleaseDate = normalizeJfkTableReleaseDate(
+      record.releaseDate
+    );
+    const normalized: NormalizedRecord = {
+      id: makeId("nara-jfk-2025", record.id),
+      title: sourced(record.fileName, sourceLabel),
+      sourceRepository: sourced(
+        "National Archives and Records Administration",
+        sourceLabel
+      ),
+      sourceCollection: sourced(
+        "JFK Assassination Records — 2025 Documents Release page",
+        sourceLabel
+      ),
+      officialUrl: sourced(record.officialUrl, sourceLabel),
+      downloadUrl: sourced(record.officialUrl, sourceLabel),
+      recordPageUrl: sourced(record.recordPageUrl, sourceLabel),
+      documentNumber: sourced(record.rifNumber, "NARA release filename"),
+      archivalCitation: sourced(
+        `NARA release filename ${record.fileName}; base RIF ${record.rifNumber}${record.fileVariant ? `; variant ${record.fileVariant}` : ""}`,
+        sourceLabel
+      ),
+      digitizationStatus: sourced(
+        "Official PDF linked from the NARA release page",
+        sourceLabel
+      ),
+      ocrAvailability: sourced(
+        false,
+        "Opstalia does not index OCR or document text for this source",
+        1
+      ),
+      releaseDate: normalizedReleaseDate
+        ? sourced(
+            normalizedReleaseDate,
+            "NARA table value; true per-file batch attribution is unresolved",
+            0.3
+          )
+        : undefined,
+      releaseMechanism: sourced(
+        "Official NARA JFK assassination-records release page",
+        sourceLabel
+      ),
+      releaseAuthority: sourced(
+        "National Archives and Records Administration",
+        sourceLabel
+      ),
+      releaseStatus: {
+        status: record.releaseStatus,
+        determinationBasis: record.releaseDeterminationBasis,
+        source: sourceLabel,
+        confidence:
+          record.releaseStatus ===
+          "released_with_redactions_status_unclear"
+            ? 0.45
+            : 0.35,
+        humanReview: true
+      },
+      exemptionCodes: [],
+      classificationMarkings: [],
+      extractedIdentifiers: [
+        record.rifNumber,
+        ...extractIdentifiers(`${record.fileName} ${record.fileVariant}`)
+      ].filter((value, position, values) => values.indexOf(value) === position),
+      textSnippet: sourced(
+        `Official NARA filename: ${record.fileName}. The table reports ${record.releaseDate || "no release date"}; NARA's current table does not reliably identify each file's actual release batch.`,
+        sourceLabel
+      ),
+      digitalObjects: [
+        {
+          id: makeId("object", record.officialUrl),
+          url: record.officialUrl,
+          downloadUrl: record.officialUrl,
+          mediaType: "application/pdf"
+        }
+      ],
+      provenance: {
+        adapterId: "nara-jfk-2025",
+        sourceId: "nara-jfk-2025",
+        officialDomain: "www.archives.gov",
+        officialRecordUrl: record.officialUrl,
+        retrievalTimestamp,
+        rawRecordId: rawRecords[indexPosition].id,
+        normalizationVersion: "1.2.0-nara-jfk-release-index"
+      },
+      retrievalTimestamp,
+      confidenceScore: 0,
+      matchExplanation: [],
+      review: { disposition: "unreviewed" }
+    };
+    const score = scoreRecord(normalized, query.target);
+    normalized.confidenceScore = score.score;
+    normalized.matchExplanation = score.factors;
+    return normalized;
+  });
+  return finish(
+    "nara-jfk-2025",
+    startedAt,
+    records,
+    rawRecords,
+    index.limitations
+  );
 }

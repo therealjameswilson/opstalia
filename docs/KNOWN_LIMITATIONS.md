@@ -1,6 +1,6 @@
 # Known Limitations
 
-This document describes the boundaries of Opstalia 1.0 as implemented on July 29, 2026. These are product constraints, not promises of future access.
+This document describes the boundaries of Opstalia 1.0 as implemented on July 30, 2026. These are product constraints, not promises of future access.
 
 ## Security and network boundary
 
@@ -16,7 +16,7 @@ Opstalia searches its current registry of supported official repositories. It do
 
 An absent result does not establish that a record was never released. Official search systems may be incomplete, unindexed, temporarily unavailable, metadata-only, or divided among agency components and presidential libraries. A document may be declassified but not digitized or publicly available online.
 
-Registry status reflects validation performed on 2026-07-29; it is not continuous monitoring. Agency URLs, schemas, terms, robots directives, and search behavior can change after that date.
+Registry status reflects validation performed through 2026-07-30; it is not continuous monitoring. Agency URLs, schemas, terms, robots directives, and search behavior can change after that date.
 
 ## Automated source coverage
 
@@ -71,6 +71,30 @@ The checked-in beta index contains 529 objects parsed from the official ISCAP re
 ### National Declassification Center
 
 The checked-in schema-version-2 beta index contains 133 entries from the FY2026 Q3 NDC release list. Its corrected builder identifies the canonical workbook header row and retains the first data entries. These are generally project-, series-, or finding-aid-level descriptions, not item-level document releases. Completion of declassification processing does not establish online availability, unrestricted access, digitization, or release in full.
+
+### NARA JFK assassination-records release page
+
+The opt-in beta index contains 2,709 distinct PDF rows from NARA's current
+“2025 Documents Release” page snapshot. It supports RIF and official-filename
+discovery only. It is not full-text search, a mirror of the PDFs, or complete
+coverage of the JFK Assassination Records Collection.
+
+The current page also lists a January 30, 2026 batch. Nevertheless, every table
+row reports March 18, 2025 and every file appears under the same 2025 path.
+Opstalia therefore preserves the row value as low-confidence source-reported
+metadata but cannot assign an actual tranche or reliable release date to an
+individual file. Multiple files can share one base RIF, including multipart,
+DocID, `multirif`, and `redacted` filename variants.
+
+The adapter does not read PDF text, identify document dates or titles beyond
+the official filename, detect visible redactions, or infer `released_in_full`.
+NARA warns that the release may include living-person PII and copyrighted
+material. Researchers must review the unaltered official PDF and applicable
+access conditions.
+
+The unofficial Doctly JFK Markdown corpus is not searched, indexed, cited, or
+presented as official release evidence. Its converted text cannot supply
+Opstalia metadata, snippets, release status, redaction findings, or provenance.
 
 ## Manual and unavailable sources
 

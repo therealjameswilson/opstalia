@@ -16,6 +16,71 @@ function decodePathComponent(value: string): string | undefined {
   }
 }
 
+export const NARA_JFK_RELEASE_PAGE_URL =
+  "https://www.archives.gov/research/jfk/release-2025";
+
+export interface NaraJfkReleasePdfLocator {
+  canonicalUrl: string;
+  fileName: string;
+  rifNumber: string;
+}
+
+export function canonicalNaraJfkReleasePdf(
+  value: string
+): NaraJfkReleasePdfLocator | undefined {
+  let parsed: URL;
+  try {
+    parsed = new URL(value);
+  } catch {
+    return undefined;
+  }
+  if (
+    parsed.protocol !== "https:" ||
+    !["archives.gov", "www.archives.gov"].includes(
+      normalizeHostname(parsed.hostname)
+    ) ||
+    parsed.username ||
+    parsed.password ||
+    parsed.port ||
+    parsed.search ||
+    parsed.hash
+  ) {
+    return undefined;
+  }
+  const match = parsed.pathname.match(
+    /^\/files\/research\/jfk\/releases\/\d{4}\/\d{4}\/([^/]+)$/i
+  );
+  const fileName = match ? decodePathComponent(match[1]) : undefined;
+  const hasControlCharacter = [...(fileName ?? "")].some((character) => {
+    const codePoint = character.codePointAt(0) ?? 0;
+    return codePoint <= 0x1f || codePoint === 0x7f;
+  });
+  if (
+    !fileName ||
+    !/\.pdf$/i.test(fileName) ||
+    fileName === "." ||
+    fileName === ".." ||
+    fileName.includes("/") ||
+    fileName.includes("\\") ||
+    fileName.includes("%") ||
+    hasControlCharacter
+  ) {
+    return undefined;
+  }
+  const rifNumber = fileName.match(/^(\d{3}-\d{5}-\d{5})(?:[^/]*)\.pdf$/i)?.[1];
+  if (!rifNumber) return undefined;
+  parsed.hostname = "www.archives.gov";
+  parsed.pathname = parsed.pathname
+    .split("/")
+    .map((segment) => encodeURIComponent(decodePathComponent(segment) ?? segment))
+    .join("/");
+  return {
+    canonicalUrl: parsed.href,
+    fileName,
+    rifNumber
+  };
+}
+
 export function canonicalNtrsDownloadPath(
   path: string,
   citationId: string
@@ -195,6 +260,46 @@ export function validateNormalizedRecordEvidence(
       object.downloadUrl
     ])
   ].filter((value): value is string => Boolean(value));
+  if (source.id === "nara-jfk-2025") {
+    const primaryLocator = canonicalNaraJfkReleasePdf(
+      record.officialUrl.value
+    );
+    const provenanceLocator = canonicalNaraJfkReleasePdf(
+      record.provenance.officialRecordUrl
+    );
+    const recordPage = record.recordPageUrl?.value;
+    const recordPageMatches =
+      recordPage === NARA_JFK_RELEASE_PAGE_URL ||
+      recordPage === NARA_JFK_RELEASE_PAGE_URL.replace(
+        "https://www.",
+        "https://"
+      );
+    if (
+      !primaryLocator ||
+      !provenanceLocator ||
+      !recordPageMatches ||
+      !record.documentNumber?.value ||
+      primaryLocator.rifNumber !== record.documentNumber.value ||
+      provenanceLocator.rifNumber !== record.documentNumber.value ||
+      provenanceLocator.canonicalUrl !== primaryLocator.canonicalUrl ||
+      fileLocators.some(
+        (value) => {
+          const locator = canonicalNaraJfkReleasePdf(value);
+          return (
+            !locator ||
+            locator.rifNumber !== record.documentNumber?.value ||
+            locator.canonicalUrl !== primaryLocator.canonicalUrl
+          );
+        }
+      )
+    ) {
+      return {
+        allowed: false,
+        reason:
+          "NARA JFK evidence must bind the official release-page PDF path and filename RIF to the normalized document number"
+      };
+    }
+  }
   if (source.id === "nasa-ntrs") {
     const citationId = new URL(record.officialUrl.value).pathname.match(
       /^\/citations\/(\d+)\/?$/

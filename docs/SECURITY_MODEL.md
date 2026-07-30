@@ -57,6 +57,7 @@ security objectives the public application can guarantee.
 | FRUS index | Static GitHub Pages asset | Pinned TEI-derived search index for three documented FRUS volumes | Checked-in public build artifact |
 | ISCAP index | Static GitHub Pages asset | Pinned official release-table index | Checked-in public build artifact |
 | NDC index | Static GitHub Pages asset | Pinned official release-list index | Checked-in public build artifact |
+| NARA JFK release-file index | Static GitHub Pages asset | Pinned official filename/RIF manifest with NARA PDF links | Checked-in public build artifact; no PDF or Doctly text |
 | Cloudflare Worker | Cloudflare edge | Dispatch fixed official-API adapters; keep NARA and GovInfo keys server-side; mediate NTRS/OSTI CORS | None configured; an ephemeral in-memory rate-limit map |
 | NARA Catalog API | NARA | Official Catalog search and metadata | Controlled by NARA |
 | GovInfo Search Service | Government Publishing Office | Official publication discovery | Controlled by GPO |
@@ -81,7 +82,7 @@ flowchart LR
     A["GovInfo, NASA NTRS, OSTI.GOV<br/>official public APIs"]
     M["Manual official repository<br/>researcher-operated"]
 
-    G -->|"HTML, JS, CSS, FRUS/ISCAP/NDC indexes"| B
+    G -->|"HTML, JS, CSS, FRUS/ISCAP/NDC/NARA-JFK indexes"| B
     B <-->|"non-private projects and preferences"| I
     B -->|"HTTPS POST: validated target + one plan query"| W
     W -->|"HTTPS GET: q, limit, supported filters, secret key"| N
@@ -96,7 +97,7 @@ flowchart LR
 
 ```mermaid
 flowchart LR
-    O["Official/official-authenticated upstream<br/>FRUS, ISCAP, NDC"]
+    O["Official/official-authenticated upstream<br/>FRUS, ISCAP, NDC, NARA JFK release page"]
     R["Controlled index builder<br/>source-specific validation checks"]
     P["Pinned commit or source SHA-256<br/>plus validation date and limitations"]
     S["Static frontend artifact"]
@@ -182,7 +183,7 @@ path remains `/opstalia/`.
 
 ## Local-index request path
 
-FRUS, ISCAP, and NDC indexes are fetched as same-origin static frontend assets
+FRUS, ISCAP, NDC, and NARA JFK indexes are fetched as same-origin static frontend assets
 and kept in the page's in-memory index map. Search terms are matched inside the
 browser. No runtime query is sent to history.state.gov or archives.gov for
 these adapters.
@@ -191,10 +192,13 @@ these adapters.
   generation time, and limitations. Canonical evidence links point to
   `history.state.gov`; build provenance is not substituted for the official
   document page.
-- ISCAP and NDC artifacts record their official source URL and source SHA-256.
-- The ISCAP and NDC builders validate expected structure and refuse
+- ISCAP, NDC, and NARA JFK artifacts record their official source URL and source SHA-256.
+- The ISCAP, NDC, and NARA JFK builders validate expected structure and refuse
   unexpectedly small or malformed inputs; the FRUS builder uses a fixed
   upstream and pinned commit.
+- The NARA JFK builder admits only direct release-path PDFs whose decoded
+  filename begins with a valid RIF. The runtime repeats the path/RIF binding.
+  The artifact contains no Doctly URLs or converted text.
 - Source limitations remain visible in source runs.
 
 ## Manual-source path
@@ -362,7 +366,7 @@ terms](https://www.archives.gov/research/catalog/help/api):
 - reports/project exports must apply the same locator sanitizer before writing
   a user file.
 
-FRUS, ISCAP, and NDC records are based on checked-in public artifacts and may be
+FRUS, ISCAP, NDC, and NARA JFK records are based on checked-in public artifacts and may be
 saved with provenance. Permissible GovInfo, NTRS, and OSTI public records may
 also be retained in browser-local projects; this does not turn their
 publication/STI status into declassification evidence.

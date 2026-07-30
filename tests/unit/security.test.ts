@@ -5,6 +5,7 @@ import { sourceRegistryDataSchema } from "../../src/core/validation";
 import { sourceRegistry } from "../../src/data/registry";
 import {
   assertSafeOutboundUrl,
+  canonicalNaraJfkReleasePdf,
   canonicalNtrsDownloadPath,
   domainMatches,
   isApprovedOfficialUrl,
@@ -49,6 +50,118 @@ describe("official-domain and secret boundaries", () => {
     ];
     rejected.forEach((path) => {
       expect(canonicalNtrsDownloadPath(path, "123"), path).toBeUndefined();
+    });
+  });
+
+  it("binds NARA JFK release files to strict official paths and RIF identifiers", () => {
+    const safe =
+      "https://www.archives.gov/files/research/jfk/releases/2025/0318/124-10167-10383%20(DocID%2032989663).PDF";
+    expect(canonicalNaraJfkReleasePdf(safe)).toMatchObject({
+      fileName: "124-10167-10383 (DocID 32989663).PDF",
+      rifNumber: "124-10167-10383"
+    });
+    [
+      "https://doctly.ai/jfk/124-10167-10383.pdf",
+      "https://github.com/doctly/jfk/124-10167-10383.pdf",
+      "https://raw.githubusercontent.com/doctly/jfk/main/124-10167-10383.pdf",
+      "https://archives.gov.evil.example/files/research/jfk/releases/2025/0318/124-10167-10383.pdf",
+      "https://www.archives.gov/research/jfk/release-2025",
+      "https://www.archives.gov/files/other/124-10167-10383.pdf",
+      "https://www.archives.gov/files/research/jfk/releases/2025/0318/%2F124-10167-10383.pdf",
+      "https://www.archives.gov/files/research/jfk/releases/2025/0318/%252F124-10167-10383.pdf",
+      "https://www.archives.gov/files/research/jfk/releases/2025/0318/124-10167-10383.pdf?download=1"
+    ].forEach((url) => {
+      expect(canonicalNaraJfkReleasePdf(url), url).toBeUndefined();
+    });
+  });
+
+  it("rejects a NARA JFK result whose file path and normalized RIF do not agree", () => {
+    const source = sourceRegistry.find(
+      (entry) => entry.id === "nara-jfk-2025"
+    )!;
+    const officialUrl =
+      "https://www.archives.gov/files/research/jfk/releases/2025/0318/104-10003-10041.pdf";
+    const record = {
+      id: "nara-jfk-test",
+      title: {
+        value: "104-10003-10041.pdf",
+        source: "NARA release table",
+        extractionMethod: "source_structured",
+        confidence: 1
+      },
+      sourceRepository: {
+        value: "National Archives and Records Administration",
+        source: "NARA release table",
+        extractionMethod: "source_structured",
+        confidence: 1
+      },
+      officialUrl: {
+        value: officialUrl,
+        source: "NARA release table",
+        extractionMethod: "source_structured",
+        confidence: 1
+      },
+      downloadUrl: {
+        value: officialUrl,
+        source: "NARA release table",
+        extractionMethod: "source_structured",
+        confidence: 1
+      },
+      recordPageUrl: {
+        value: "https://www.archives.gov/research/jfk/release-2025",
+        source: "NARA release table",
+        extractionMethod: "source_structured",
+        confidence: 1
+      },
+      documentNumber: {
+        value: "104-10003-10041",
+        source: "NARA release filename",
+        extractionMethod: "source_structured",
+        confidence: 1
+      },
+      releaseStatus: {
+        status: "not_determined",
+        determinationBasis: "Record-specific release completeness is unknown.",
+        source: "NARA release table",
+        confidence: 0.4,
+        humanReview: true
+      },
+      exemptionCodes: [],
+      classificationMarkings: [],
+      extractedIdentifiers: ["104-10003-10041"],
+      digitalObjects: [
+        {
+          id: "object-jfk",
+          url: officialUrl,
+          downloadUrl: officialUrl,
+          mediaType: "application/pdf"
+        }
+      ],
+      provenance: {
+        adapterId: "nara-jfk-2025",
+        sourceId: "nara-jfk-2025",
+        officialDomain: "www.archives.gov",
+        officialRecordUrl: officialUrl,
+        retrievalTimestamp: "2026-07-30T00:00:00Z",
+        normalizationVersion: "test"
+      },
+      retrievalTimestamp: "2026-07-30T00:00:00Z",
+      confidenceScore: 0,
+      matchExplanation: [],
+      review: { disposition: "unreviewed" }
+    } as NormalizedRecord;
+    expect(validateNormalizedRecordEvidence(record, source).allowed).toBe(true);
+    record.digitalObjects[0].url =
+      "https://www.archives.gov/files/research/jfk/releases/2025/0318/104-10003-10041_multirif.pdf";
+    expect(validateNormalizedRecordEvidence(record, source)).toMatchObject({
+      allowed: false,
+      reason: expect.stringContaining("filename RIF")
+    });
+    record.digitalObjects[0].url = officialUrl;
+    record.documentNumber!.value = "104-10003-99999";
+    expect(validateNormalizedRecordEvidence(record, source)).toMatchObject({
+      allowed: false,
+      reason: expect.stringContaining("filename RIF")
     });
   });
 

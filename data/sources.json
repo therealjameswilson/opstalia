@@ -1,6 +1,6 @@
 {
-  "version": "1.1.0",
-  "lastValidated": "2026-07-29",
+  "version": "1.2.0",
+  "lastValidated": "2026-07-30",
   "policyStatement": "Opstalia searches its current registry of supported official repositories.",
   "sources": [
     {
@@ -22,6 +22,35 @@
       "manualSearchUrl": "https://catalog.archives.gov/",
       "lastValidated": "2026-07-29",
       "enabledByDefault": true
+    },
+    {
+      "id": "nara-jfk-2025",
+      "displayName": "NARA JFK Assassination Records — 2025 Release Page",
+      "agency": "National Archives and Records Administration",
+      "officialDomains": ["archives.gov"],
+      "description": "Official NARA release-file index for JFK assassination records listed on the 2025 Documents Release page, including later files currently included in that page's table.",
+      "searchCapability": "automated",
+      "apiAvailability": "No documented structured API; Opstalia builds a pinned index from the official server-rendered NARA table",
+      "authentication": "None",
+      "rateLimit": "No API rate limit; archives.gov robots specifies a 10-second crawl delay",
+      "robotsAndTerms": "A scheduled build fetches the single official release page, validates its table and links, and records its hash. Runtime search uses the checked-in same-origin index and links to NARA PDFs; Opstalia does not mirror the PDFs.",
+      "adapterStatus": "beta",
+      "implementationMethod": "Opt-in browser-side search of a guarded, build-time index containing only NARA-reported filenames, RIF identifiers, source-reported dates, and official archives.gov PDF links",
+      "supportedFilters": ["RIF number", "official filename", "filename variant", "source-reported release date"],
+      "fieldsReturned": ["official filename", "RIF number", "filename variant", "source-reported release date", "official PDF URL", "official release-page URL"],
+      "knownLimitations": [
+        "The current NARA page includes a January 30, 2026 batch even though its title and file paths refer to 2025",
+        "All current table rows report March 18, 2025, so Opstalia preserves that value as source-reported but does not infer each file's actual release batch",
+        "This filename-level index does not ingest PDF text, OCR, page counts, or document dates",
+        "Multiple official files may share one base RIF; Opstalia preserves each distinct official URL",
+        "A posted official PDF does not by itself establish release in full",
+        "NARA warns that records may contain personally identifiable information and that some materials may be copyrighted",
+        "The unofficial doctly/jfk Markdown corpus is not searched, indexed, or presented as official release evidence"
+      ],
+      "manualSearchUrl": "https://www.archives.gov/research/jfk/release-2025",
+      "manualSearchLabel": "Open official NARA JFK release page",
+      "lastValidated": "2026-07-30",
+      "enabledByDefault": false
     },
     {
       "id": "frus",

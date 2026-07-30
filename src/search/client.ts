@@ -14,7 +14,12 @@ import type {
 import { deduplicateRecords } from "../analysis/versioning";
 import { normalizeError } from "../security/redaction";
 import { validateNormalizedRecordEvidence } from "../security/url-policy";
-import { searchFrus, searchIscap, searchNdc } from "./local-adapters";
+import {
+  searchFrus,
+  searchIscap,
+  searchJfk2025,
+  searchNdc
+} from "./local-adapters";
 import { buildManualSearchHandoff } from "./manual-handoff";
 
 const PUBLIC_API_BASE = (import.meta.env.VITE_API_BASE as string | undefined)?.replace(/\/$/, "");
@@ -292,8 +297,10 @@ export async function runFederatedSearch(
                 ? await searchFrus(normalized, sourceSignal)
                 : source.id === "iscap"
                   ? await searchIscap(normalized, sourceSignal)
-                  : source.id === "ndc"
-                    ? await searchNdc(normalized, sourceSignal)
+                : source.id === "ndc"
+                  ? await searchNdc(normalized, sourceSignal)
+                  : source.id === "nara-jfk-2025"
+                    ? await searchJfk2025(normalized, sourceSignal)
                     : manualResponse(source, plan);
           sourceResponses.push(result);
         } catch (error) {

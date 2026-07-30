@@ -48,17 +48,18 @@ jobs:
       - name: Discard timestamp-only changes
         shell: bash
         run: |
-          for file in public/data/indexes/frus.json public/data/indexes/iscap.json public/data/indexes/ndc.json; do
+          for file in public/data/indexes/frus.json public/data/indexes/iscap.json public/data/indexes/ndc.json public/data/indexes/jfk-2025.json; do
             if git cat-file -e "HEAD:${file}" 2>/dev/null &&
               diff -q \
-                <(git show "HEAD:${file}" | jq -S 'del(.generatedAt)') \
-                <(jq -S 'del(.generatedAt)' "${file}") >/dev/null; then
+                <(git show "HEAD:${file}" | jq -S 'del(.generatedAt, .sourceSnapshot.retrievedAt)') \
+                <(jq -S 'del(.generatedAt, .sourceSnapshot.retrievedAt)' "${file}") >/dev/null; then
               git checkout -- "${file}"
             fi
           done
 
       - name: Validate refreshed indexes
         run: |
+          npx vitest run tests/unit/jfk-2025-index.test.ts tests/security/repository-boundary.test.ts
           npm run test:integration
           npm run secret:scan
           npm run build

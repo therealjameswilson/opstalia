@@ -60,12 +60,12 @@ Read [SECURITY.md](SECURITY.md), [PRIVACY.md](PRIVACY.md), [the security model](
 
 ## Supported sources
 
-Registry revision **1.1.0** was validated on **2026-07-29** and contains 34 official-source entries:
+Registry revision **1.2.0** was validated on **2026-07-30** and contains 35 official-source entries:
 
 | Status | Count | Current behavior |
 |---|---:|---|
 | Integrated | 2 | National Archives Catalog; Office of the Historian / FRUS |
-| Beta | 7 | ISCAP; NDC; two NARA record-group profiles; GovInfo; NASA NTRS; OSTI.GOV |
+| Beta | 8 | NARA JFK release-file index; ISCAP; NDC; two NARA record-group profiles; GovInfo; NASA NTRS; OSTI.GOV |
 | Temporarily unavailable | 1 | CIA FOIA Electronic Reading Room; prepared terms, official status/publications links, and a retry link are provided |
 | Manual search | 20 | Official agency handoffs or reading-room links; no normalized results are claimed |
 | Planned | 4 | Registry and official link only |
@@ -76,6 +76,7 @@ The automated implementations are deliberately different:
 - **National Archives Catalog:** live Catalog API v2 search through a Cloudflare Worker. A working deployment requires `NARA_API_KEY`.
 - **CIA records held by NARA — RG 263:** an optional NARA Catalog profile fixed to available-online textual records in Record Group 263. It requires `NARA_API_KEY` and does **not** search the native CIA FOIA Electronic Reading Room.
 - **Department of State records held by NARA — RG 59:** an optional NARA Catalog profile fixed to available-online textual records in Record Group 59. It requires `NARA_API_KEY` and does **not** search the native State FOIA Virtual Reading Room or RG 84 Foreign Service Post records.
+- **NARA JFK release-file index:** an optional browser-local beta index of the current official NARA “2025 Documents Release” table. It searches exactly **2,709 distinct official PDF rows** by RIF and filename metadata, including records NARA later added to the same page. It does not ingest PDF text or the unofficial Doctly Markdown corpus, and it does not infer a record-specific full release.
 - **GovInfo:** a beta Worker adapter for the documented Search Service. It requires a separate server-side `GOVINFO_API_KEY`. A GovInfo publication is official publication evidence, not automatically declassification or full-release evidence.
 - **NASA Technical Reports Server:** a beta Worker adapter for official public scientific and technical information. NTRS is not a unified NASA FOIA reading room, and a public result is not proof of declassification or release in full.
 - **OSTI.GOV:** a beta Worker adapter for official public DOE-funded scientific and technical information. It is separate from DOE OpenNet and is not proof of declassification or release in full.
@@ -104,7 +105,7 @@ Opstalia uses a two-part architecture:
 1. A React 19, TypeScript, and Vite single-page application is built for the `/opstalia/` base path and hosted on GitHub Pages.
 2. A TypeScript Cloudflare Worker dispatches only registered fixed-upstream adapters, holds `NARA_API_KEY` and `GOVINFO_API_KEY` when configured, applies validation, streamed request/response limits, CORS, timeouts, rate limits, and no-store responses, and returns normalized results. The Worker and browser runtime-validate each response and apply official-domain, result/file-URL, source-identity, adapter-provenance, and source-specific record-ID binding checks before a record can enter the primary results index. NTRS and OSTI remain usable without source API secrets.
 
-FRUS, ISCAP, and NDC are checked-in, same-origin static indexes searched inside the browser. Projects, comparisons, annotations, reports, and preferences are stored in IndexedDB unless private mode is active. No user account or public multi-user database is required.
+FRUS, ISCAP, NDC, and the optional NARA JFK release-file manifest are checked-in, same-origin static indexes searched inside the browser. Projects, comparisons, annotations, reports, and preferences are stored in IndexedDB unless private mode is active. No user account or public multi-user database is required.
 
 The source registry and official-domain allowlists live in [`data/sources.json`](data/sources.json). Shared TypeScript entities live in [`src/core/types.ts`](src/core/types.ts), and input-boundary validation lives in [`src/core/validation.ts`](src/core/validation.ts).
 
@@ -134,7 +135,7 @@ npm ci
 npm run dev
 ```
 
-The frontend runs at `http://localhost:5173/`. The three checked-in local indexes work without a Worker or API key.
+The frontend runs at `http://localhost:5173/`. The four checked-in local indexes work without a Worker or API key.
 
 To test the local Worker, create an ignored `worker/.dev.vars` file:
 
@@ -217,7 +218,7 @@ gh variable set VITE_API_BASE \
 git push origin main
 ```
 
-The frontend still builds when `VITE_API_BASE` is absent. In that state all Worker-backed sources are unavailable, while FRUS, ISCAP, NDC, and manual workflows continue to work. With a Worker URL but no source keys, the opt-in NTRS and OSTI adapters remain usable; NARA reports its missing-key state, while either NARA record-group profile and GovInfo report their respective missing-key state when the researcher selects them. Backend deployment is therefore not a precondition for a successful static frontend build.
+The frontend still builds when `VITE_API_BASE` is absent. In that state all Worker-backed sources are unavailable, while FRUS, ISCAP, NDC, the optional NARA JFK index, and manual workflows continue to work. With a Worker URL but no source keys, the opt-in NTRS and OSTI adapters remain usable; NARA reports its missing-key state, while either NARA record-group profile and GovInfo report their respective missing-key state when the researcher selects them. Backend deployment is therefore not a precondition for a successful static frontend build.
 
 Full Cloudflare, GitHub Pages, Actions-variable, readiness, and verification instructions are in [DEPLOYMENT.md](docs/DEPLOYMENT.md).
 
@@ -266,6 +267,7 @@ Refresh checked-in indexes only through their builders:
 npm run indexes:frus
 npm run indexes:iscap
 npm run indexes:ndc
+npm run indexes:jfk-2025
 ```
 
 These commands access official public sources and may change generated data. Review record counts, provenance metadata, source hashes or pinned commit, and diffs before committing.
@@ -278,6 +280,8 @@ These commands access official public sources and may change generated data. Rev
 - NTRS and OSTI are official scientific/publication discovery sources, not declassification or full-release determinations.
 - FRUS coverage is 752 documents in three volumes, not the complete FRUS series.
 - ISCAP and NDC searches use build-time snapshots, not live runtime queries.
+- The opt-in NARA JFK adapter is filename/RIF search over a mutable official release-page snapshot, not full-text search or complete JFK Collection coverage. The current NARA table reports March 18, 2025 for every row even though the page now includes later batches, so Opstalia does not infer per-file batch membership from that value.
+- Opstalia does not ingest or present the unofficial Doctly JFK corpus as official release evidence.
 - The 133 NDC entries are generally finding-aid or series-level descriptions and may report that records are not online.
 - State FOIA is a user-initiated, prefilled official-search handoff, not an automated adapter; CIA Reading Room search is temporarily unavailable upstream.
 - Official search indexes and OCR may be incomplete.

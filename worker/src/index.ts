@@ -145,7 +145,7 @@ const worker = {
         ok: true,
         ready: true,
         service: "opstalia-api",
-        version: "1.1.0",
+        version: "1.2.0",
         naraSecretConfigured: Boolean(environment.NARA_API_KEY),
         govInfoSecretConfigured: Boolean(environment.GOVINFO_API_KEY),
         registeredAdapters: workerSourceIds,

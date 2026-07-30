@@ -125,7 +125,7 @@ Do not commit captured NARA API responses, add a NARA response cache, persist re
 
 ## Refreshing checked-in source indexes
 
-The FRUS, ISCAP, and NDC adapters search checked-in indexes in the browser. They do not scrape official sites at runtime.
+The FRUS, ISCAP, NDC, and opt-in NARA JFK adapters search checked-in indexes in the browser. They do not scrape official sites at runtime. The JFK index may contain only official NARA table metadata and `archives.gov` PDF links; Doctly/GitHub conversions are not evidence inputs.
 
 Run a refresh intentionally:
 
@@ -133,13 +133,17 @@ Run a refresh intentionally:
 npm run indexes:frus
 npm run indexes:iscap
 npm run indexes:ndc
+npm run indexes:jfk-2025
 ```
 
-Or refresh all three:
+Or refresh all four:
 
 ```sh
 npm run indexes:refresh
 ```
+
+The combined refresh inserts ten seconds between `archives.gov` acquisitions
+to honor NARA's published crawl-delay guidance.
 
 For every refresh:
 

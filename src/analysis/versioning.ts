@@ -87,6 +87,18 @@ export function compareVersions(left: NormalizedRecord, right: NormalizedRecord)
     reasons.push("Same official record URL");
   }
   score = Math.min(100, score);
+  const sameJfkBaseRif =
+    left.provenance.sourceId === "nara-jfk-2025" &&
+    right.provenance.sourceId === "nara-jfk-2025" &&
+    raw(left.documentNumber) === raw(right.documentNumber) &&
+    left.provenance.officialRecordUrl !== right.provenance.officialRecordUrl;
+  if (sameJfkBaseRif) {
+    score = Math.min(78, Math.max(score, 72));
+    strongIdentifier = false;
+    reasons.push(
+      "Same base RIF, but NARA lists distinct official files; filename variants, parts, or multirif copies are not automatically identical"
+    );
+  }
   return {
     id: makeId("relationship", [left.id, right.id].sort().join("|")),
     leftRecordId: left.id,
