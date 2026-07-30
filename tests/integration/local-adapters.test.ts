@@ -42,9 +42,22 @@ describe("local official-source indexes", () => {
     const cia = sourceRegistry.find((source) => source.id === "cia");
     expect(cia).toMatchObject({
       searchCapability: "manual",
-      adapterStatus: "temporarily_unavailable"
+      adapterStatus: "temporarily_unavailable",
+      manualSearchLabel: "Retry CIA Reading Room"
     });
     expect(cia?.robotsAndTerms).toMatch(/disallows/i);
     expect(cia?.manualSearchUrl).toContain("cia.gov/readingroom");
+    expect(cia?.officialAccessLinks).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: "status",
+          url: expect.stringContaining("cia.gov/redirects/search-unavailable")
+        }),
+        expect.objectContaining({
+          kind: "fallback",
+          url: expect.stringContaining("cia.gov/resources/publications")
+        })
+      ])
+    );
   });
 });

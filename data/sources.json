@@ -1,5 +1,5 @@
 {
-  "version": "1.0.0",
+  "version": "1.0.1",
   "lastValidated": "2026-07-29",
   "policyStatement": "Opstalia searches its current registry of supported official repositories.",
   "sources": [
@@ -95,11 +95,24 @@
       "rateLimit": "Not published",
       "robotsAndTerms": "CIA robots disallows Reading Room search, advanced-search, and JSON paths. Automated retrieval is disabled.",
       "adapterStatus": "temporarily_unavailable",
-      "implementationMethod": "Manual-search link with editable terms",
+      "implementationMethod": "Outage-aware retry worksheet with copyable terms and working official status and publication fallbacks",
       "supportedFilters": ["full text", "collection", "title", "document number", "original classification", "publication date", "content type", "case number"],
       "fieldsReturned": [],
       "knownLimitations": ["The Reading Room showed a redirect loop during 2026-07-29 validation", "No normalized results until the researcher records an official source", "Search and OCR may be incomplete"],
       "manualSearchUrl": "https://www.cia.gov/readingroom/advanced-search-view/",
+      "manualSearchLabel": "Retry CIA Reading Room",
+      "officialAccessLinks": [
+        {
+          "label": "View CIA search service notice",
+          "url": "https://www.cia.gov/redirects/search-unavailable/",
+          "kind": "status"
+        },
+        {
+          "label": "Browse CIA publications",
+          "url": "https://www.cia.gov/resources/publications/publications-list/",
+          "kind": "fallback"
+        }
+      ],
       "lastValidated": "2026-07-29",
       "enabledByDefault": true
     },
@@ -115,11 +128,19 @@
       "rateLimit": "Not published",
       "robotsAndTerms": "foia.state.gov disallows automated access to the entire site. Undocumented JSON endpoints are not used.",
       "adapterStatus": "manual",
-      "implementationMethod": "Manual-search link",
+      "implementationMethod": "Query-aware, user-initiated handoff to the official State search interface; no backend retrieval",
       "supportedFilters": ["keywords", "document dates", "posted dates", "FOIA case number", "sender", "recipient", "document type"],
       "fieldsReturned": [],
       "knownLimitations": ["OCR errors affect retrieval", "Records may originate with other agencies", "No normalized results until a researcher records an official source"],
-      "manualSearchUrl": "https://foia.state.gov/Search/Search.aspx",
+      "manualSearchUrl": "https://foia.state.gov/FOIALIBRARY/SearchResults.aspx",
+      "manualSearchLabel": "Open State FOIA search",
+      "officialAccessLinks": [
+        {
+          "label": "Open State FOIA search",
+          "url": "https://foia.state.gov/FOIALIBRARY/SearchResults.aspx",
+          "kind": "search"
+        }
+      ],
       "lastValidated": "2026-07-29",
       "enabledByDefault": true
     },

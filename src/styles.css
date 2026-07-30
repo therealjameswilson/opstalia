@@ -1038,6 +1038,20 @@ textarea {
   margin: 0 !important;
 }
 
+.source-option-group {
+  padding: 0.65rem 0;
+  border-bottom: 1px solid var(--cream-200);
+}
+
+.source-option-group > p {
+  margin: 0 0 0.25rem;
+  color: var(--slate-700);
+  font-size: 0.7rem;
+  font-weight: 850;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
 .source-selector summary,
 .match-details summary,
 details summary {
@@ -1072,14 +1086,106 @@ details summary {
 .source-progress li {
   display: grid;
   padding: 0.8rem 0;
-  grid-template-columns: auto minmax(0, 1fr) auto auto;
-  align-items: center;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: start;
   gap: 0.8rem;
   border-top: 1px solid var(--cream-200);
 }
 
 .source-progress li > div {
   display: grid;
+}
+
+.manual-handoff {
+  display: block;
+  max-width: 900px;
+  margin-top: 0.75rem;
+  padding: 0.9rem;
+  background: var(--cream-50);
+  border: 1px solid var(--cream-200);
+  border-left: 4px solid var(--gold-500);
+}
+
+.manual-handoff-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.65rem;
+}
+
+.manual-handoff-actions > a:not(.button) {
+  font-size: 0.78rem;
+  font-weight: 800;
+}
+
+.handoff-privacy {
+  margin: 0.65rem 0;
+  color: var(--slate-700);
+  font-size: 0.75rem;
+  line-height: 1.5;
+}
+
+.handoff-filters {
+  margin: 0.65rem 0;
+}
+
+.handoff-filters > div {
+  display: grid;
+  padding: 0.35rem 0;
+  grid-template-columns: minmax(120px, 0.35fr) 1fr;
+  gap: 0.6rem;
+  border-bottom: 1px solid var(--cream-200);
+}
+
+.handoff-filters dt {
+  color: var(--slate-700);
+  font-weight: 800;
+}
+
+.handoff-filters dd {
+  overflow-wrap: anywhere;
+}
+
+.manual-handoff details {
+  margin-top: 0.7rem;
+}
+
+.manual-handoff details ul {
+  margin-bottom: 0;
+}
+
+.manual-result-entry form {
+  display: grid;
+  margin-top: 0.75rem;
+  padding: 0.85rem;
+  gap: 0.75rem;
+  background: var(--paper);
+  border: 1px solid var(--cream-200);
+}
+
+.manual-result-entry form > p {
+  margin: 0;
+}
+
+.manual-result-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.75rem;
+}
+
+.manual-result-confirm {
+  display: flex !important;
+  align-items: flex-start;
+  gap: 0.6rem;
+}
+
+.manual-result-confirm input {
+  width: auto;
+  margin-top: 0.2rem;
+}
+
+.manual-result-entry .button {
+  justify-self: start;
 }
 
 .report-toolbar {
@@ -1363,7 +1469,8 @@ details summary {
   color: var(--orange-700);
 }
 
-.provenance-researcher {
+.provenance-researcher,
+.provenance-corrected {
   color: var(--green-700);
 }
 
@@ -1542,7 +1649,7 @@ details summary {
 
 .coverage-table {
   width: 100%;
-  min-width: 1180px;
+  min-width: 980px;
   border-collapse: collapse;
   font-size: 0.76rem;
 }
@@ -1570,6 +1677,19 @@ details summary {
   display: block;
   margin-top: 0.25rem;
   font-weight: 400;
+}
+
+.coverage-source-actions {
+  display: flex;
+  margin-top: 0.65rem;
+  flex-wrap: wrap;
+  gap: 0.45rem 0.8rem;
+}
+
+.coverage-source-actions a {
+  color: var(--navy-700);
+  font-size: 0.72rem;
+  font-weight: 850;
 }
 
 .coverage-table tbody tr:hover {
@@ -2268,6 +2388,15 @@ details summary {
 
   .source-progress li {
     grid-template-columns: auto 1fr;
+  }
+
+  .source-progress li > span:last-child {
+    grid-column: 2;
+  }
+
+  .manual-result-grid,
+  .handoff-filters > div {
+    grid-template-columns: 1fr;
   }
 
   .record-card-header,

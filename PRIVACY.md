@@ -33,13 +33,16 @@ Cloudflare Worker
      v
 NARA Catalog API
 
-Your browser -- ordinary navigation/view request --> selected official website
+Your browser -- user-initiated navigation, including prepared terms when shown --> selected official website
+                                                                                  and its service providers
 ```
 
 FRUS, ISCAP, and NDC 1.0 searches run against checked-in public indexes delivered
 with the frontend. They do not make a runtime search request to those upstream
-sites. A manual adapter opens the relevant official site; the researcher
-performs the search there.
+sites. A manual adapter prepares a local worksheet. State FOIA can receive
+prepared terms and supported filters in its official URL only when the
+researcher explicitly opens the handoff. CIA retry terms remain local unless
+the researcher copies or retries them. No manual source opens automatically.
 
 ## What leaves the browser
 
@@ -49,7 +52,7 @@ performs the search there.
 | Search FRUS, ISCAP, or NDC | No runtime search service | The query is evaluated in page memory against a static index already delivered by GitHub Pages |
 | Search NARA | Cloudflare Worker | A validated search object containing the unclassified target metadata except research notes, one generated or edited query, limit/cursor if present, and the private-mode flag |
 | Worker searches NARA | NARA Catalog API | Query text, limit, API credential, and supported filters such as NAID, dates, title, creator, geography, and material type |
-| Use a manual adapter | Selected official repository | Normal browser request data; any search terms the user then enters on that official site |
+| Open a manual handoff | Selected official repository and service providers used by that site | Normal browser request data and any prepared search terms/filters included in the displayed official URL; local research notes are excluded |
 | Open or compare an official file | Selected official repository | Normal navigation or embedded-view request data, including the requested official URL |
 | Export a project/report | User-selected local destination | The generated file is created in the browser; subsequent cloud sync, email, or transfer is controlled by the user and their device |
 
@@ -70,7 +73,7 @@ For non-private projects, Opstalia stores the following in the browser's
 namespaced IndexedDB database:
 
 - search targets and editable search plans;
-- source-run status and public indexed results;
+- source-run status, prepared manual handoffs, and public indexed results;
 - generated source locators;
 - saved-record selections;
 - comparison and version-group decisions;
@@ -160,9 +163,11 @@ Private mode does **not**:
 
 Opstalia application code does not intentionally record full queries, request
 bodies, API keys, authorization headers, or IP addresses. GitHub, Cloudflare,
-NARA, and other official repositories are independent service operators and
-may maintain access, security, or operational logs under their own policies.
-Opstalia does not control their retention or legal obligations.
+NARA, other official repositories, and service providers loaded by those
+repositories are independent operators and may receive request URLs or
+maintain access, analytics, security, or operational logs under their own
+policies. Opstalia does not control their telemetry, retention, or legal
+obligations after the researcher opens an external site.
 
 ## Cookies and analytics
 
@@ -175,7 +180,9 @@ using its service.
 
 The only public-build upload control is local Opstalia project JSON import. The
 file is read in the browser, limited to 20 MB by application code, and validated
-before local persistence. It is not sent to the Worker.
+before use. A non-private import is stored locally; an import whose project flag
+is private opens only in memory and is not written to IndexedDB. Imports are not
+sent to the Worker.
 
 Exports and screenshots can contain search terms, official-source locators, and
 researcher notes. The user is responsible for choosing an appropriate storage

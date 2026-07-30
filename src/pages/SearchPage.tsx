@@ -13,12 +13,14 @@ import { makeId } from "../core/id";
 import { searchTargetSchema } from "../core/validation";
 import { buildSearchPlan } from "../search/query-expansion";
 import { runFederatedSearch } from "../search/client";
+import { createManualOfficialRecord, type ManualOfficialRecordInput } from "../search/manual-record";
 import { sourceRegistry } from "../data/registry";
 import { deduplicateRecords, groupVersions } from "../analysis/versioning";
 import { downloadText, projectToCsv, projectToJson, projectToMarkdown, projectToPrintableHtml } from "../reporting/exports";
 import { copyText, safeFileName } from "../ui/format";
 import { ExternalLink, SectionHeading } from "../ui/common";
 import { ResultsPanel } from "./ResultsPanel";
+import { ManualSourceActions } from "./ManualSourceActions";
 
 const EMPTY_TARGET: SearchTarget = {
   mode: "guided",
@@ -42,8 +44,51 @@ function upsertRun(runs: SourceRun[], next: SourceRun): SourceRun[] {
   return [...runs.filter((run) => run.sourceId !== next.sourceId), next].sort((left, right) => left.sourceId.localeCompare(right.sourceId));
 }
 
+function isResearcherLocator(record: SearchProject["records"][number]): boolean {
+  return record.provenance.normalizationVersion.includes("researcher-locator");
+}
+
+function withManualRecordCount(
+  run: SourceRun,
+  records: SearchProject["records"]
+): SourceRun {
+  if (!run.manualHandoff) return run;
+  const researcherResultCount = records.filter(
+    (record) => record.provenance.sourceId === run.sourceId && isResearcherLocator(record)
+  ).length;
+  return {
+    ...run,
+    resultCount: researcherResultCount,
+    manualHandoff: {
+      ...run.manualHandoff,
+      researcherResultCount
+    }
+  };
+}
+
 function searchName(target: SearchTarget): string {
   return target.titleOrSubject || target.quickQuery || target.identifiers || `Opstalia search ${new Date().toLocaleDateString()}`;
+}
+
+function targetsEqual(left: SearchTarget, right: SearchTarget): boolean {
+  const keys: Array<keyof SearchTarget> = [
+    "mode",
+    "quickQuery",
+    "titleOrSubject",
+    "exactPhrase",
+    "generalKeywords",
+    "dateFrom",
+    "dateTo",
+    "originatingAgency",
+    "originatingOffice",
+    "authorSender",
+    "recipient",
+    "documentType",
+    "identifiers",
+    "geographicFocus",
+    "notes"
+  ];
+  return keys.every((key) => left[key] === right[key]);
 }
 
 function shareTarget(target: SearchTarget): void {
@@ -106,7 +151,19 @@ export function SearchPage({ project, onProjectUpdate, onCompare }: SearchPagePr
 
   const updateTarget = <K extends keyof SearchTarget>(key: K, value: SearchTarget[K]) => {
     setTarget((current) => ({ ...current, [key]: value }));
+    if (plan) {
+      setPlan(undefined);
+      setMessage("Target metadata changed. Build and review a new search plan before running sources.");
+    }
     setError("");
+  };
+
+  const updatePrivateMode = (enabled: boolean) => {
+    if (workspaceProject) return;
+    setPrivateMode(enabled);
+    if (enabled && location.hash.startsWith("#search?")) {
+      history.replaceState(null, "", `${location.pathname}${location.search}#new-search`);
+    }
   };
 
   const buildPlan = (event?: FormEvent) => {
@@ -146,27 +203,39 @@ export function SearchPage({ project, onProjectUpdate, onCompare }: SearchPagePr
     abortRef.current = controller;
     setRunning(true);
     setError("");
-    setMessage("Searching supported official repositories. Source failures will remain isolated.");
-    let partialRecords: SearchProject["records"] = [];
+    setMessage("Running automated official-source adapters and preparing manual search handoffs. Source failures will remain isolated.");
+    const existingProject = workspaceProject ?? project;
+    const continuingProject =
+      existingProject && !existingProject.fixture && targetsEqual(existingProject.target, plan.target)
+        ? existingProject
+        : undefined;
+    const existingSavedIds = new Set(continuingProject?.savedRecordIds ?? []);
+    const preservedRecords =
+      continuingProject?.records.filter(
+            (record) => existingSavedIds.has(record.id) || isResearcherLocator(record)
+          ) ?? [];
+    let partialRecords: SearchProject["records"] = preservedRecords;
     let partialRaw: SearchProject["rawRecords"] = [];
     let partialRuns: SourceRun[] = [];
     const now = new Date().toISOString();
     const base: SearchProject = {
-      id: project?.id && !project.fixture ? project.id : makeId("project"),
+      id: continuingProject?.id ?? makeId("project"),
       name: searchName(plan.target),
-      createdAt: project?.createdAt && !project.fixture ? project.createdAt : now,
+      createdAt: continuingProject?.createdAt ?? now,
       updatedAt: now,
       target: plan.target,
       plan,
       sourceRuns: [],
       rawRecords: [],
-      records: [],
-      savedRecordIds: project?.fixture ? [] : project?.savedRecordIds ?? [],
+      records: preservedRecords,
+      savedRecordIds: preservedRecords
+        .filter((record) => existingSavedIds.has(record.id))
+        .map((record) => record.id),
       versionGroups: [],
-      comparisons: project?.fixture ? [] : project?.comparisons ?? [],
-      notes: project?.fixture ? [] : project?.notes ?? [],
+      comparisons: [],
+      notes: continuingProject?.notes ?? [],
       auditEvents: [
-        ...(project?.fixture ? [] : project?.auditEvents ?? []),
+        ...(continuingProject?.auditEvents ?? []),
         {
           id: makeId("audit"),
           timestamp: now,
@@ -185,12 +254,13 @@ export function SearchPage({ project, onProjectUpdate, onCompare }: SearchPagePr
         selectedDefinitions,
         privateMode,
         (run) => {
-          partialRuns = upsertRun(partialRuns, run);
+          partialRuns = upsertRun(partialRuns, withManualRecordCount(run, partialRecords));
           setSourceRuns(partialRuns);
         },
         (response: SourceSearchResponse) => {
           partialRecords = deduplicateRecords([...partialRecords, ...response.records]);
           partialRaw = [...partialRaw, ...response.rawRecords];
+          partialRuns = partialRuns.map((run) => withManualRecordCount(run, partialRecords));
           const partial: SearchProject = {
             ...base,
             sourceRuns: partialRuns,
@@ -203,29 +273,40 @@ export function SearchPage({ project, onProjectUpdate, onCompare }: SearchPagePr
         },
         controller.signal
       );
+      const completeRecords = deduplicateRecords([...preservedRecords, ...result.records]);
+      const completeRecordIds = new Set(completeRecords.map((record) => record.id));
+      const completeRuns = result.sourceRuns.map((run) => withManualRecordCount(run, completeRecords));
+      const wasCancelled = controller.signal.aborted;
       const complete: SearchProject = {
         ...base,
-        sourceRuns: result.sourceRuns,
-        records: result.records,
+        sourceRuns: completeRuns,
+        records: completeRecords,
         rawRecords: result.rawRecords,
-        versionGroups: groupVersions(result.records),
+        savedRecordIds: base.savedRecordIds.filter((recordId) => completeRecordIds.has(recordId)),
+        versionGroups: groupVersions(completeRecords),
+        comparisons:
+          (continuingProject?.comparisons ?? []).filter((comparison) =>
+            comparison.recordIds.every((recordId) => completeRecordIds.has(recordId))
+          ),
         updatedAt: new Date().toISOString(),
         auditEvents: [
           ...base.auditEvents,
           {
             id: makeId("audit"),
             timestamp: new Date().toISOString(),
-            action: "Completed federated official-source search",
-            basis: `${result.records.length} normalized official results; ${result.warnings.length} source warnings`,
+            action: wasCancelled
+              ? "Cancelled federated official-source search"
+              : "Completed federated official-source search",
+            basis: `${completeRecords.length} normalized official results retained; ${result.warnings.length} source warnings`,
             actor: "opstalia"
           }
         ]
       };
       setWorkspaceProject(complete);
-      setSourceRuns(result.sourceRuns);
+      setSourceRuns(completeRuns);
       await onProjectUpdate(complete);
       setMessage(
-        `Search complete with ${result.records.length} normalized result${result.records.length === 1 ? "" : "s"}. ${
+        `${wasCancelled ? "Search cancelled; partial work retained" : "Search complete"} with ${completeRecords.length} normalized result${completeRecords.length === 1 ? "" : "s"}. ${
           privateMode ? "Private mode kept this project in memory only." : "The project was saved locally."
         }`
       );
@@ -241,6 +322,102 @@ export function SearchPage({ project, onProjectUpdate, onCompare }: SearchPagePr
   const commitWorkspace = async (next: SearchProject) => {
     setWorkspaceProject(next);
     await onProjectUpdate(next);
+  };
+
+  const markManualHandoffOpened = (sourceId: string) => {
+    const timestamp = new Date().toISOString();
+    const currentRun = sourceRuns.find((run) => run.sourceId === sourceId);
+    if (!currentRun?.manualHandoff || currentRun.manualHandoff.openedAt) return;
+    const nextRuns = sourceRuns.map((run) =>
+      run.sourceId === sourceId && run.manualHandoff
+        ? {
+            ...run,
+            manualHandoff: {
+              ...run.manualHandoff,
+              status:
+                run.manualHandoff.status === "prepared"
+                  ? "opened" as const
+                  : run.manualHandoff.status,
+              openedAt: timestamp
+            }
+          }
+        : run
+    );
+    setSourceRuns(nextRuns);
+    if (workspaceProject) {
+      void commitWorkspace({
+        ...workspaceProject,
+        sourceRuns: nextRuns,
+        updatedAt: timestamp,
+        auditEvents: [
+          ...workspaceProject.auditEvents,
+          {
+            id: makeId("audit"),
+            timestamp,
+            action: "Opened official manual-search handoff",
+            subjectId: sourceId,
+            basis: "Researcher initiated navigation; Opstalia did not retrieve the destination results.",
+            actor: "researcher"
+          }
+        ]
+      });
+    }
+  };
+
+  const addManualOfficialRecord = async (
+    sourceId: string,
+    input: ManualOfficialRecordInput
+  ) => {
+    if (!workspaceProject) throw new Error("Run or prepare the source before recording a result.");
+    const source = sourceRegistry.find((entry) => entry.id === sourceId);
+    if (!source) throw new Error("The source is not registered.");
+    const record = createManualOfficialRecord(source, workspaceProject.target, input);
+    if (
+      workspaceProject.records.some(
+        (existing) =>
+          existing.provenance.sourceId === sourceId &&
+          existing.officialUrl.value === record.officialUrl.value
+      )
+    ) {
+      throw new Error("That official locator is already in this project.");
+    }
+    const timestamp = new Date().toISOString();
+    const records = [...workspaceProject.records, record];
+    const sourceRecordCount = records.filter((item) => item.provenance.sourceId === sourceId).length;
+    const nextRuns = sourceRuns.map((run) =>
+      run.sourceId === sourceId && run.manualHandoff
+        ? {
+            ...run,
+            resultCount: sourceRecordCount,
+            manualHandoff: {
+              ...run.manualHandoff,
+              researcherResultCount: sourceRecordCount
+            }
+          }
+        : run
+    );
+    const next: SearchProject = {
+      ...workspaceProject,
+      sourceRuns: nextRuns,
+      records,
+      savedRecordIds: [...new Set([...workspaceProject.savedRecordIds, record.id])],
+      versionGroups: groupVersions(records),
+      updatedAt: timestamp,
+      auditEvents: [
+        ...workspaceProject.auditEvents,
+        {
+          id: makeId("audit"),
+          timestamp,
+          action: "Recorded researcher-confirmed official locator",
+          subjectId: record.id,
+          basis: `${source.displayName}; approved official domain; document contents were not fetched.`,
+          actor: "researcher"
+        }
+      ]
+    };
+    setSourceRuns(nextRuns);
+    await commitWorkspace(next);
+    setMessage(`Added one official ${source.displayName} locator to this project and Saved Records.`);
   };
 
   const exportBase = safeFileName(workspaceProject?.name ?? "opstalia-report");
@@ -296,8 +473,19 @@ export function SearchPage({ project, onProjectUpdate, onCompare }: SearchPagePr
         )}
         <div className="privacy-row">
           <label className="private-toggle">
-            <input type="checkbox" checked={privateMode} onChange={(event) => setPrivateMode(event.target.checked)} />
-            <span><strong>Private search mode</strong><small>Memory-only project; no Opstalia search history or live NARA response cache. Static public index assets may be cached. Queries still reach selected live official sources.</small></span>
+            <input
+              type="checkbox"
+              checked={privateMode}
+              disabled={Boolean(workspaceProject)}
+              onChange={(event) => updatePrivateMode(event.target.checked)}
+            />
+            <span>
+              <strong>Private search mode</strong>
+              <small>
+                Memory-only project; no Opstalia search history or live NARA response cache. Static public index assets may be cached. Queries still reach selected live official sources.
+                {workspaceProject ? " Start a new project to change this setting." : ""}
+              </small>
+            </span>
           </label>
           <button className="button button-primary" type="submit" disabled={!acknowledged}>Build search plan</button>
         </div>
@@ -385,27 +573,60 @@ export function SearchPage({ project, onProjectUpdate, onCompare }: SearchPagePr
               ))}
             </div>
             <fieldset className="source-selector">
-              <legend>Sources for this run</legend>
-              {sourceRegistry.filter((source) => source.enabledByDefault).map((source) => (
-                <label key={source.id}>
-                  <input
-                    type="checkbox"
-                    checked={selectedSources.includes(source.id)}
-                    onChange={(event) =>
-                      setSelectedSources((current) =>
-                        event.target.checked ? [...current, source.id] : current.filter((id) => id !== source.id)
-                      )
-                    }
-                  />
-                  <span>
-                    <strong>{source.displayName}</strong>
-                    <small>{source.searchCapability} · {source.adapterStatus.replaceAll("_", " ")}</small>
-                  </span>
-                </label>
+              <legend>Sources and handoffs for this run</legend>
+              {[
+                {
+                  label: "Automated adapters",
+                  sources: sourceRegistry.filter((source) => source.enabledByDefault && source.searchCapability === "automated")
+                },
+                {
+                  label: "Manual searches to prepare",
+                  sources: sourceRegistry.filter(
+                    (source) =>
+                      source.enabledByDefault &&
+                      source.searchCapability === "manual" &&
+                      source.adapterStatus !== "temporarily_unavailable"
+                  )
+                },
+                {
+                  label: "Unavailable sources · prepare retry terms",
+                  sources: sourceRegistry.filter(
+                    (source) => source.enabledByDefault && source.adapterStatus === "temporarily_unavailable"
+                  )
+                }
+              ].map((group) => (
+                group.sources.length > 0 && (
+                  <div className="source-option-group" key={group.label}>
+                    <p>{group.label}</p>
+                    {group.sources.map((source) => (
+                      <label key={source.id}>
+                        <input
+                          type="checkbox"
+                          checked={selectedSources.includes(source.id)}
+                          onChange={(event) =>
+                            setSelectedSources((current) =>
+                              event.target.checked ? [...current, source.id] : current.filter((id) => id !== source.id)
+                            )
+                          }
+                        />
+                        <span>
+                          <strong>{source.displayName}</strong>
+                          <small>
+                            {source.adapterStatus === "temporarily_unavailable"
+                              ? "terms only · upstream unavailable"
+                              : `${source.searchCapability} · ${source.adapterStatus.replaceAll("_", " ")}`}
+                          </small>
+                        </span>
+                      </label>
+                    ))}
+                  </div>
+                )
               ))}
               <details>
                 <summary>Add another registered official source</summary>
-                {sourceRegistry.filter((source) => !source.enabledByDefault).map((source) => (
+                {sourceRegistry
+                  .filter((source) => !source.enabledByDefault && source.searchCapability !== "planned")
+                  .map((source) => (
                   <label key={source.id}>
                     <input
                       type="checkbox"
@@ -419,15 +640,19 @@ export function SearchPage({ project, onProjectUpdate, onCompare }: SearchPagePr
                     <span><strong>{source.displayName}</strong><small>{source.searchCapability} · {source.adapterStatus.replaceAll("_", " ")}</small></span>
                   </label>
                 ))}
+                <p className="fine-print">
+                  Planned registry entries appear on Source Coverage and cannot be selected until an adapter or
+                  official manual-search handoff is implemented.
+                </p>
               </details>
             </fieldset>
           </div>
           <div className="run-row">
-            <p>NARA is capped at the first three enabled plan queries per run to protect the monthly quota. Local indexes may evaluate every enabled variant.</p>
+            <p>NARA is capped at the first three enabled plan queries to protect the monthly quota. Manual sources receive a prepared handoff only; nothing opens automatically.</p>
             {running ? (
               <button className="button button-danger" onClick={() => abortRef.current?.abort()}>Stop search</button>
             ) : (
-              <button className="button button-primary" onClick={() => void runSearch()}>Search selected official sources</button>
+              <button className="button button-primary" onClick={() => void runSearch()}>Run adapters and prepare handoffs</button>
             )}
           </div>
         </section>
@@ -442,9 +667,34 @@ export function SearchPage({ project, onProjectUpdate, onCompare }: SearchPagePr
               return (
                 <li key={run.sourceId}>
                   <span className={`progress-icon progress-${run.status}`} aria-hidden="true" />
-                  <div><strong>{source?.displayName ?? run.sourceId}</strong><small>{run.message ?? run.status.replaceAll("_", " ")}</small></div>
-                  <span>{run.resultCount} results</span>
-                  {run.manualSearchUrl && <ExternalLink href={run.manualSearchUrl}>Manual search</ExternalLink>}
+                  <div>
+                    <strong>{source?.displayName ?? run.sourceId}</strong>
+                    <small>{run.message ?? run.status.replaceAll("_", " ")}</small>
+                    {source && run.manualHandoff && (
+                      <ManualSourceActions
+                        run={run}
+                        source={source}
+                        enabled={acknowledged && !running}
+                        onOpen={() => markManualHandoffOpened(run.sourceId)}
+                        onRecord={(input) => addManualOfficialRecord(run.sourceId, input)}
+                      />
+                    )}
+                    {!run.manualHandoff && run.manualSearchUrl && acknowledged && !running && (
+                      <ExternalLink href={run.manualSearchUrl}>Open official source</ExternalLink>
+                    )}
+                    {!run.manualHandoff && run.manualSearchUrl && (!acknowledged || running) && (
+                      <button type="button" className="button button-secondary" disabled>
+                        Open official source
+                      </button>
+                    )}
+                  </div>
+                  <span>
+                    {run.manualHandoff
+                      ? run.resultCount
+                        ? `${run.resultCount} recorded`
+                        : "Handoff only"
+                      : `${run.resultCount} results`}
+                  </span>
                 </li>
               );
             })}
@@ -452,23 +702,26 @@ export function SearchPage({ project, onProjectUpdate, onCompare }: SearchPagePr
         </section>
       )}
 
+      {workspaceProject && (sourceRuns.length > 0 || workspaceProject.records.length > 0) && !running && (
+        <div className="report-toolbar">
+          <strong>Research report</strong>
+          <button onClick={() => downloadText(`${exportBase}.md`, projectToMarkdown(workspaceProject), "text/markdown")}>Markdown</button>
+          <button onClick={() => downloadText(`${exportBase}.csv`, projectToCsv(workspaceProject), "text/csv")}>CSV</button>
+          <button onClick={() => downloadText(`${exportBase}.json`, projectToJson(workspaceProject), "application/json")}>JSON project</button>
+          <button onClick={() => downloadText(`${exportBase}.print.html`, projectToPrintableHtml(workspaceProject), "text/html")}>Printable HTML / PDF</button>
+          <button
+            onClick={() => void copyText(projectToMarkdown(workspaceProject)).then(() => {
+              setReportCopied(true);
+              setTimeout(() => setReportCopied(false), 2000);
+            })}
+          >
+            {reportCopied ? "Copied" : "Copy report"}
+          </button>
+        </div>
+      )}
+
       {workspaceProject && workspaceProject.records.length > 0 && (
         <>
-          <div className="report-toolbar">
-            <strong>Research report</strong>
-            <button onClick={() => downloadText(`${exportBase}.md`, projectToMarkdown(workspaceProject), "text/markdown")}>Markdown</button>
-            <button onClick={() => downloadText(`${exportBase}.csv`, projectToCsv(workspaceProject), "text/csv")}>CSV</button>
-            <button onClick={() => downloadText(`${exportBase}.json`, projectToJson(workspaceProject), "application/json")}>JSON project</button>
-            <button onClick={() => downloadText(`${exportBase}.print.html`, projectToPrintableHtml(workspaceProject), "text/html")}>Printable HTML / PDF</button>
-            <button
-              onClick={() => void copyText(projectToMarkdown(workspaceProject)).then(() => {
-                setReportCopied(true);
-                setTimeout(() => setReportCopied(false), 2000);
-              })}
-            >
-              {reportCopied ? "Copied" : "Copy report"}
-            </button>
-          </div>
           <ResultsPanel
             project={workspaceProject}
             onUpdate={(next) => void commitWorkspace(next)}

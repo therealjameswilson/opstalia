@@ -1,5 +1,6 @@
 import type { ExportReport, NormalizedRecord, SearchProject } from "../core/types";
 import { sanitizeProjectForPersistence } from "../persistence/database";
+import { getSource } from "../data/registry";
 
 export const STANDARD_CAVEATS = [
   "Absence of a search result does not establish that a document has never been released.",
@@ -18,24 +19,63 @@ function current<T>(field?: { value: T; researcherOverride?: { value: T } }): T 
   return field?.researcherOverride?.value ?? field?.value;
 }
 
+function markdownText(value: unknown): string {
+  return String(value ?? "")
+    .replace(/[\r\n\u2028\u2029]+/g, " ")
+    // Markdown exports are rendered by downstream tools; remove non-printing controls.
+    // eslint-disable-next-line no-control-regex
+    .replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f-\u009f]/g, "")
+    .replace(/\\/g, "\\\\")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/([`*_{}[\]()|])/g, "\\$1");
+}
+
+function markdownUrl(value: unknown): string {
+  try {
+    const url = new URL(String(value));
+    return `<${url.href.replace(/</g, "%3C").replace(/>/g, "%3E")}>`;
+  } catch {
+    return markdownText(value);
+  }
+}
+
+function jsonCodeBlock(value: unknown): string {
+  const json = (JSON.stringify(value, null, 2) ?? "null")
+    .replace(/&/g, "\\u0026")
+    .replace(/</g, "\\u003c")
+    .replace(/>/g, "\\u003e");
+  const longestBacktickRun = Math.max(
+    0,
+    ...(json.match(/`+/g) ?? []).map((run) => run.length)
+  );
+  const fence = "`".repeat(Math.max(3, longestBacktickRun + 1));
+  return `${fence}json\n${json}\n${fence}`;
+}
+
 function recordMarkdown(record: NormalizedRecord, number: number): string {
-  const factors = record.matchExplanation.map((factor) => `  - ${factor.points >= 0 ? "+" : ""}${factor.points} ${factor.label}: ${factor.detail}`).join("\n");
+  const factors = record.matchExplanation.map((factor) => `  - ${factor.points >= 0 ? "+" : ""}${factor.points} ${markdownText(factor.label)}: ${markdownText(factor.detail)}`).join("\n");
+  const isResearcherLocator = record.provenance.normalizationVersion.includes("researcher-locator");
+  const provenanceSummary = record.provenance.importedUnverified
+    ? `imported ${record.retrievalTimestamp}; official-domain checked, but source retrieval and provenance were not revalidated`
+    : `${isResearcherLocator ? "locator recorded" : "retrieved"} ${record.retrievalTimestamp}`;
   return [
-    `### ${number}. ${current(record.title)}`,
+    `### ${number}. ${markdownText(current(record.title))}`,
     "",
-    `- Official source: ${current(record.sourceRepository)}`,
-    `- Official URL: ${current(record.officialUrl)}`,
-    `- Date: ${current(record.date) ?? "Unknown"}`,
+    `- Official source: ${markdownText(current(record.sourceRepository))}`,
+    `- Official URL: ${markdownUrl(current(record.officialUrl))}`,
+    `- Date: ${markdownText(current(record.date) ?? "Unknown")}`,
     `- Release status: \`${record.review.releaseStatusOverride?.status ?? record.releaseStatus.status}\``,
-    `- Determination basis: ${record.review.releaseStatusOverride?.determinationBasis ?? record.releaseStatus.determinationBasis}`,
+    `- Determination basis: ${markdownText(record.review.releaseStatusOverride?.determinationBasis ?? record.releaseStatus.determinationBasis)}`,
     `- Match score: ${record.confidenceScore}/100`,
-    `- Provenance: ${record.provenance.adapterId}; retrieved ${record.retrievalTimestamp}`,
-    `- Visible exemption codes: ${record.exemptionCodes.join(", ") || "None reported or detected"}`,
+    `- Provenance: ${markdownText(record.provenance.adapterId)}; ${markdownText(provenanceSummary)}`,
+    `- Visible exemption codes: ${record.exemptionCodes.length ? record.exemptionCodes.map(markdownText).join(", ") : "None reported or detected"}`,
     "",
     "Why this matched:",
     factors || "  - No positive scoring factor recorded.",
     "",
-    `Researcher review: ${record.review.disposition}${record.review.basis ? ` — ${record.review.basis}` : ""}`
+    `Researcher review: ${record.review.disposition}${record.review.basis ? ` — ${markdownText(record.review.basis)}` : ""}`
   ].join("\n");
 }
 
@@ -60,37 +100,103 @@ export function createExportReport(project: SearchProject): ExportReport {
 export function projectToMarkdown(project: SearchProject): string {
   const report = createExportReport(project);
   const exportProject = report.project;
-  const sourceRuns = exportProject.sourceRuns
-    .map((run) => `- ${run.sourceId}: ${run.status} (${run.resultCount} results)${run.message ? ` — ${run.message}` : ""}`)
+  const automatedRuns = exportProject.sourceRuns
+    .filter((run) => {
+      const source = getSource(run.sourceId);
+      return (
+        !run.manualHandoff &&
+        run.status !== "manual_available" &&
+        source?.searchCapability !== "manual" &&
+        !["temporarily_unavailable", "blocked", "cancelled"].includes(run.status)
+      );
+    })
+    .map((run) => `- ${markdownText(run.sourceId)}: ${run.status} (${run.resultCount} results)${run.message ? ` — ${markdownText(run.message)}` : ""}`)
     .join("\n");
-  const queries = exportProject.plan.queries.filter((query) => query.enabled).map((query) => `- [${query.kind}] ${query.text}`).join("\n");
+  const manualHandoffs = exportProject.sourceRuns
+    .filter((run) => {
+      const source = getSource(run.sourceId);
+      return (
+        !["temporarily_unavailable", "blocked", "cancelled"].includes(run.status) &&
+        (
+          (run.manualHandoff && run.manualHandoff.status !== "unavailable") ||
+          (!run.manualHandoff && (run.status === "manual_available" || source?.searchCapability === "manual"))
+        )
+      );
+    })
+    .map((run) => {
+      const handoff = run.manualHandoff;
+      if (!handoff) {
+        return [
+          `- ${markdownText(run.sourceId)}: manual link available; ${run.resultCount} researcher-recorded locator${run.resultCount === 1 ? "" : "s"}`,
+          `  - Official handoff: ${run.manualSearchUrl ? markdownUrl(run.manualSearchUrl) : "Unavailable"}`,
+          "  - Caveat: Legacy saved run; no prepared handoff worksheet was stored."
+        ].join("\n");
+      }
+      const filters = Object.entries(handoff.appliedFilters)
+        .map(([label, value]) => `  - ${markdownText(label)}: ${markdownText(value)}`)
+        .join("\n");
+      return [
+        `- ${markdownText(run.sourceId)}: ${handoff.status}; ${run.resultCount} researcher-recorded locator${run.resultCount === 1 ? "" : "s"}`,
+        `  - Search text: ${markdownText(handoff.queryText || "None")}`,
+        `  - Official handoff: ${handoff.queryUrl ? markdownUrl(handoff.queryUrl) : run.manualSearchUrl ? markdownUrl(run.manualSearchUrl) : "Unavailable"}`,
+        filters,
+        ...handoff.warnings.map((warning) => `  - Caveat: ${markdownText(warning)}`)
+      ].filter(Boolean).join("\n");
+    })
+    .join("\n");
+  const unavailableRuns = exportProject.sourceRuns
+    .filter(
+      (run) =>
+        ["temporarily_unavailable", "blocked", "cancelled"].includes(run.status) ||
+        run.manualHandoff?.status === "unavailable"
+    )
+    .map((run) => {
+      const handoff = run.manualHandoff;
+      return [
+        `- ${markdownText(run.sourceId)}: ${run.status}${run.message ? ` — ${markdownText(run.message)}` : ""}`,
+        handoff?.queryText ? `  - Prepared retry text: ${markdownText(handoff.queryText)}` : "",
+        handoff?.queryUrl ? `  - Official retry: ${markdownUrl(handoff.queryUrl)}` : "",
+        run.resultCount
+          ? `  - Researcher-recorded locators: ${run.resultCount} (this does not mean the unavailable source was searched)`
+          : "",
+        ...(handoff?.warnings.map((warning) => `  - Caveat: ${markdownText(warning)}`) ?? [])
+      ].filter(Boolean).join("\n");
+    })
+    .join("\n");
+  const queries = exportProject.plan.queries.filter((query) => query.enabled).map((query) => `- [${query.kind}] ${markdownText(query.text)}`).join("\n");
   const groups = exportProject.versionGroups
-    .map((group) => `- ${group.label}: ${group.recordIds.length} records; ${group.reviewStatus}`)
+    .map((group) => `- ${markdownText(group.label)}: ${group.recordIds.length} records; ${group.reviewStatus}`)
     .join("\n");
   return [
-    `# Opstalia research report: ${exportProject.name}`,
+    `# Opstalia research report: ${markdownText(exportProject.name)}`,
     "",
     `Generated: ${report.generatedAt}`,
-    `Project created: ${exportProject.createdAt}`,
+    `Project created: ${markdownText(exportProject.createdAt)}`,
     `Private mode: ${exportProject.privateMode ? "Yes — this project was not persisted by Opstalia" : "No"}`,
     "",
     "## Security boundary",
     "",
-    "This report was produced from unclassified metadata and publicly available official-source records. Opstalia 1.0 is an unclassified Internet application and is not connected to Opstalia-c or any closed network.",
+    "Opstalia is authorized only for unclassified, unrestricted metadata and public official-source records. It does not determine classification. The researcher is responsible for complying with handling restrictions. Opstalia 1.0 is an Internet application and is not connected to Opstalia-c or any closed network.",
     "",
     "## Search target",
     "",
-    "```json",
-    JSON.stringify(exportProject.target, null, 2),
-    "```",
+    jsonCodeBlock(exportProject.target),
     "",
     "## Search terms used",
     "",
     queries || "- None",
     "",
-    "## Sources searched",
+    "## Automated sources searched",
     "",
-    sourceRuns || "- None",
+    automatedRuns || "- None",
+    "",
+    "## Manual official-source handoffs",
+    "",
+    manualHandoffs || "- None",
+    "",
+    "## Sources unavailable",
+    "",
+    unavailableRuns || "- None",
     "",
     "## Results",
     "",
@@ -112,14 +218,17 @@ export function projectToMarkdown(project: SearchProject): string {
     "",
     "- Open the best candidate on its official source page and verify the current record.",
     "- Review source notes, withdrawal sheets, page counts, and attachments manually.",
-    "- Run official manual-search adapters for unavailable repositories.",
+    "- Complete prepared official manual-search handoffs and record any official locators found.",
+    "- Retry unavailable official repositories after the source restores service.",
     "- Record the basis for any match, version, or release-status conclusion."
   ].join("\n");
 }
 
 function csvCell(value: unknown): string {
   let text = value == null ? "" : String(value);
-  if (/^[=+\-@]/.test(text)) text = `'${text}`;
+  // Spreadsheet formulas can be hidden behind ASCII or Unicode control prefixes.
+  // eslint-disable-next-line no-control-regex
+  if (/^[\s\u0000-\u001f\u007f-\u009f]*[=+\-@]/u.test(text)) text = `'${text}`;
   return `"${text.replaceAll('"', '""')}"`;
 }
 
@@ -140,7 +249,8 @@ export function projectToCsv(project: SearchProject): string {
     "match_score",
     "review_disposition",
     "provenance_adapter",
-    "retrieved_at"
+    "provenance_verification",
+    "retrieved_or_recorded_at"
   ];
   const rows = exportProject.records.map((record) => [
     record.id,
@@ -157,6 +267,11 @@ export function projectToCsv(project: SearchProject): string {
     record.confidenceScore,
     record.review.disposition,
     record.provenance.adapterId,
+    record.provenance.importedUnverified
+      ? "imported_source_not_revalidated"
+      : record.provenance.normalizationVersion.includes("researcher-locator")
+        ? "researcher_confirmed_locator"
+        : "source_run",
     record.retrievalTimestamp
   ]);
   return [header, ...rows].map((row) => row.map(csvCell).join(",")).join("\r\n");

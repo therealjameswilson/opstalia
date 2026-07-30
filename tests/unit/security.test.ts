@@ -33,4 +33,13 @@ describe("official-domain and secret boundaries", () => {
     expect(redactSecrets("x-api-key: SUPERSECRET123 authorization=Bearer ABCDEF")).not.toContain("SUPERSECRET123");
     expect(normalizeError(new Error("429 rate limit")).code).toBe("SOURCE_RATE_LIMIT");
   });
+
+  it("keeps every registry access link on its source's approved official domains", () => {
+    for (const source of sourceRegistry) {
+      expect(isApprovedOfficialUrl(source.manualSearchUrl, source), `${source.id} manual link`).toBe(true);
+      for (const link of source.officialAccessLinks ?? []) {
+        expect(isApprovedOfficialUrl(link.url, source), `${source.id} ${link.label}`).toBe(true);
+      }
+    }
+  });
 });

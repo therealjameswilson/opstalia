@@ -66,8 +66,8 @@ The registry snapshot was validated on **2026-07-29** and contains 30 official-s
 |---|---:|---|
 | Integrated | 2 | National Archives Catalog; Office of the Historian / FRUS |
 | Beta | 2 | ISCAP releases; National Declassification Center release lists |
-| Temporarily unavailable | 1 | CIA FOIA Electronic Reading Room, with an official manual-search link |
-| Manual search | 20 | Official agency search or reading-room links; no normalized results are claimed |
+| Temporarily unavailable | 1 | CIA FOIA Electronic Reading Room; prepared terms, official status/publications links, and a retry link are provided |
+| Manual search | 20 | Official agency handoffs or reading-room links; no normalized results are claimed |
 | Planned | 5 | Registry and official link only |
 | Retired | 0 | None |
 
@@ -78,7 +78,9 @@ The automated implementations are deliberately different:
 - **ISCAP:** browser-local search of exactly **529 release-table objects** built from the official NARA ISCAP releases page.
 - **NDC:** browser-local search of exactly **121 rows** from the official FY2026 Q3 release-list workbook. These are generally series-level finding-aid or availability descriptions, not item-level digital records.
 
-CIA and Department of State FOIA are **not** working automated integrations in 1.0. They have first-class links to their official search systems. See [SOURCE_COVERAGE.md](docs/SOURCE_COVERAGE.md) for the complete registry and its limitations.
+CIA and Department of State FOIA are **not** automated integrations in 1.0. For State FOIA, Opstalia creates a user-initiated, prefilled handoff to the official released-document search using applicable terms, dates, sender, recipient, case number, and document type. Opstalia does not fetch or scrape the State results. The CIA Reading Room was upstream-unavailable at validation, so Opstalia instead prepares copyable terms and offers working official CIA status/publications links plus a Reading Room retry link; it does not claim to have searched CIA. See [SOURCE_COVERAGE.md](docs/SOURCE_COVERAGE.md) for the complete registry and its limitations.
+
+When a researcher finds a record through a manual handoff, Opstalia can record its official URL only after the researcher confirms that the material is unclassified and publicly released. The locator must use HTTPS on an approved official domain and match that adapter's direct record-page or record-file path rules before it can be treated as primary release evidence. A generic search-results, status, home, publications, collection, or other navigation page remains a research lead even when it is on an approved domain; Opstalia does not admit it as primary evidence. Reports label automated searches, manual handoffs, and unavailable sources separately.
 
 Opstalia searches its current registry of supported official repositories.
 
@@ -258,7 +260,7 @@ These commands access official public sources and may change generated data. Rev
 - FRUS coverage is 752 documents in three volumes, not the complete FRUS series.
 - ISCAP and NDC searches use build-time snapshots, not live runtime queries.
 - NDC rows are generally finding-aid or series-level descriptions and may report that records are not online.
-- CIA and State FOIA are manual-only in this release.
+- State FOIA is a user-initiated, prefilled official-search handoff, not an automated adapter; CIA Reading Room search is temporarily unavailable upstream.
 - Official search indexes and OCR may be incomplete.
 - Textual redaction-marking detection is deterministic and probabilistic; it requires human review.
 - The current image routine is a limited dark-region primitive, not a production claim of page-level redaction recognition.

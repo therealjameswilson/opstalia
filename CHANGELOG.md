@@ -6,6 +6,32 @@ All notable changes to Opstalia are documented in this file. The project follows
 
 No unreleased changes are recorded.
 
+## [1.0.1] - 2026-07-29
+
+### Added
+
+- Query-aware, user-initiated Department of State FOIA handoffs with safely encoded official search terms, dates, sender, recipient, case number, and supported document-type filters.
+- CIA outage assistance with copyable retry terms, an official CIA service notice, official publications access, and a clearly labeled Reading Room retry.
+- Researcher-confirmed capture of manually discovered official locators with HTTPS official-domain enforcement, cautious `not_determined` release status, local notes, and saved-record integration.
+- Separate report sections for automated searches, manual official-source handoffs, and unavailable sources, including export support when a handoff returns no normalized records.
+
+### Changed
+
+- Moved source actions beside source names so CIA and State controls remain visible on narrow screens.
+- Replaced misleading manual-source `0 results` labels with explicit handoff-only status.
+- Made prepared handoff text and structured filters follow the researcher-edited, enabled search-plan queries.
+- Preserved researcher-recorded locators across same-target reruns without re-saving intentionally unsaved records; retargeting now starts a separate project.
+- Preserved private imports as memory-only workspaces and kept private records available to the in-memory saved/compare views without adding search history.
+- Updated privacy, architecture, data-model, security, threat-model, source-coverage, and known-limitations documentation for the new data flow.
+
+### Security
+
+- Manual handoffs never open automatically and never include local research notes.
+- Researcher-recorded locators reject unofficial domains, non-HTTPS URLs, credentials, nonstandard ports, and official-but-nonrecord home/search/status/publications pages.
+- Imported handoffs are regenerated from the visible validated plan and current registry; imported counts, statuses, URL overrides, and private-mode behavior are normalized or rejected.
+- Markdown, printable HTML, and CSV exports preserve import-verification caveats and neutralize report-content injection.
+- CIA and State remain honestly labeled as unavailable and manual respectively; neither is represented as an automated integration.
+
 ## [1.0.0] - 2026-07-29
 
 ### Added

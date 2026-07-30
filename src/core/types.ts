@@ -85,6 +85,12 @@ export type AdapterStatus =
   | "planned"
   | "retired";
 
+export interface OfficialAccessLink {
+  label: string;
+  url: string;
+  kind: "search" | "status" | "fallback" | "guide";
+}
+
 export interface SourceDefinition {
   id: string;
   displayName: string;
@@ -102,6 +108,8 @@ export interface SourceDefinition {
   fieldsReturned: string[];
   knownLimitations: string[];
   manualSearchUrl: string;
+  manualSearchLabel?: string;
+  officialAccessLinks?: OfficialAccessLink[];
   lastValidated: string;
   enabledByDefault: boolean;
 }
@@ -116,6 +124,18 @@ export type SourceRunStatus =
   | "manual_available"
   | "cancelled";
 
+export interface ManualSearchHandoff {
+  queryText: string;
+  queryUrl?: string;
+  appliedFilters: Record<string, string>;
+  status: "prepared" | "opened" | "completed" | "unavailable";
+  openedAt?: string;
+  completedAt?: string;
+  researcherResultCount?: number;
+  researcherNotes?: string;
+  warnings: string[];
+}
+
 export interface SourceRun {
   id: string;
   sourceId: string;
@@ -125,6 +145,7 @@ export interface SourceRun {
   resultCount: number;
   message?: string;
   manualSearchUrl?: string;
+  manualHandoff?: ManualSearchHandoff;
   fromCache?: boolean;
 }
 

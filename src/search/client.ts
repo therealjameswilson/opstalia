@@ -11,6 +11,7 @@ import type {
 import { deduplicateRecords } from "../analysis/versioning";
 import { normalizeError } from "../security/redaction";
 import { searchFrus, searchIscap, searchNdc } from "./local-adapters";
+import { buildManualSearchHandoff } from "./manual-handoff";
 
 const PUBLIC_API_BASE = (import.meta.env.VITE_API_BASE as string | undefined)?.replace(/\/$/, "");
 const SOURCE_CONCURRENCY = 4;
@@ -20,23 +21,42 @@ export function apiConfigured(): boolean {
   return Boolean(PUBLIC_API_BASE);
 }
 
-function manualResponse(source: SourceDefinition): SourceSearchResponse {
+function manualResponse(source: SourceDefinition, plan: SearchPlan): SourceSearchResponse {
+  const handoff = buildManualSearchHandoff(source, plan);
+  const unavailable = source.adapterStatus === "temporarily_unavailable" || handoff.status === "unavailable";
   return {
     sourceRun: {
       id: makeId("source-run"),
       sourceId: source.id,
-      status: "manual_available",
+      status: unavailable ? "temporarily_unavailable" : "manual_available",
       completedAt: new Date().toISOString(),
       resultCount: 0,
-      message:
-        source.adapterStatus === "temporarily_unavailable"
-          ? "Automated access is unavailable or prohibited; an official manual link is provided."
-          : "This source has an official manual-search adapter.",
-      manualSearchUrl: source.manualSearchUrl
+      message: unavailable
+        ? "The official source is unavailable upstream. Prepared terms, service information, and a safe retry are available."
+        : "Prepared a user-initiated search on the official source. Opstalia did not retrieve or count the results.",
+      manualSearchUrl: handoff.queryUrl ?? source.manualSearchUrl,
+      manualHandoff: handoff
     },
     rawRecords: [],
     records: [],
-    warnings: source.knownLimitations
+    warnings: [...new Set([...handoff.warnings, ...source.knownLimitations])]
+  };
+}
+
+function plannedResponse(source: SourceDefinition): SourceSearchResponse {
+  return {
+    sourceRun: {
+      id: makeId("source-run"),
+      sourceId: source.id,
+      status: "blocked",
+      completedAt: new Date().toISOString(),
+      resultCount: 0,
+      message:
+        "This registry entry is planned and has no automated or manual-search adapter in Opstalia 1.0."
+    },
+    rawRecords: [],
+    records: [],
+    warnings: [...source.knownLimitations]
   };
 }
 
@@ -140,7 +160,8 @@ export async function runFederatedSearch(
         resultCount: 0
       });
       if (source.searchCapability !== "automated") {
-        const response = manualResponse(source);
+        const response =
+          source.searchCapability === "manual" ? manualResponse(source, plan) : plannedResponse(source);
         onRun(response.sourceRun);
         onPartial(response);
         responses.push(response);
@@ -185,7 +206,7 @@ export async function runFederatedSearch(
                 ? await searchIscap(normalized, sourceSignal)
                 : source.id === "ndc"
                   ? await searchNdc(normalized, sourceSignal)
-                  : manualResponse(source);
+                  : manualResponse(source, plan);
         sourceResponses.push(result);
       }
       const records = deduplicateRecords(sourceResponses.flatMap((response) => response.records));

@@ -104,7 +104,19 @@ function RecordCard({
       </div>
       {!compact && current(record.textSnippet) && <p className="record-snippet">{current(record.textSnippet)}</p>}
       <div className="record-flags">
-        <FieldProvenance kind="source" />
+        <FieldProvenance
+          kind={
+            record.title.researcherOverride || record.title.extractionMethod === "researcher_corrected"
+              ? "corrected"
+              : record.title.extractionMethod === "researcher_confirmed"
+                ? "researcher"
+                : record.title.extractionMethod === "ocr" || record.title.extractionMethod === "pattern_match"
+                  ? "extracted"
+                  : record.title.extractionMethod === "algorithmic_inference"
+                    ? "inferred"
+                    : "source"
+          }
+        />
         {record.matchExplanation.length > 0 && <FieldProvenance kind="inferred" />}
         {record.review.disposition !== "unreviewed" && <FieldProvenance kind="researcher" />}
         {activeExemptionCodes.map((code) => {
@@ -142,7 +154,10 @@ function RecordCard({
           <dl className="record-facts">
             <div><dt>Adapter</dt><dd>{record.provenance.adapterId}</dd></div>
             <div><dt>Official domain</dt><dd>{record.provenance.officialDomain}</dd></div>
-            <div><dt>Retrieved</dt><dd>{record.retrievalTimestamp}</dd></div>
+            <div>
+              <dt>{record.provenance.normalizationVersion.includes("researcher-locator") ? "Locator recorded" : "Retrieved"}</dt>
+              <dd>{record.retrievalTimestamp}</dd>
+            </div>
             <div>
               <dt>Import verification</dt>
               <dd>{record.provenance.importedUnverified ? "Official-domain checked; source provenance not revalidated" : "Not imported, or re-created by a source run"}</dd>

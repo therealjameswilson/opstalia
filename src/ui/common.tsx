@@ -35,12 +35,17 @@ export function EmptyState({ title, children, action }: PropsWithChildren<{ titl
   );
 }
 
-export function FieldProvenance({ kind }: { kind: "source" | "extracted" | "inferred" | "researcher" }) {
+export function FieldProvenance({
+  kind
+}: {
+  kind: "source" | "extracted" | "inferred" | "researcher" | "corrected";
+}) {
   const labels = {
     source: "Source-reported",
     extracted: "Automatically extracted",
     inferred: "Algorithmically inferred",
-    researcher: "Researcher confirmed"
+    researcher: "Researcher confirmed",
+    corrected: "Researcher corrected"
   };
   return <span className={`provenance-label provenance-${kind}`}>{labels[kind]}</span>;
 }

@@ -78,7 +78,8 @@ connection or synchronization with a closed network.
    the public Internet and Cloudflare edge.
 5. **Worker to NARA:** a secret-bearing request crosses to the official API.
 6. **Browser to manual source or file:** the user leaves Opstalia's runtime
-   control and interacts with the official host.
+   control and interacts with the official host. A displayed prefilled handoff
+   transmits its prepared terms and filters when the user opens it.
 7. **Import/export boundary:** user-controlled files enter or leave browser
    storage.
 8. **Build pipeline to release:** dependencies and upstream source artifacts
@@ -94,11 +95,11 @@ connection or synchronization with a closed network.
 | Cross-origin abuse of Worker | Exact origin allowlist and CORS rejection | CORS is not authentication and non-browser clients can send requests. Rate limiting and quota monitoring remain necessary |
 | NARA quota exhaustion or denial of service | 30/minute per ephemeral derived key, at most three NARA plan variants, source timeout, one bounded retry, partial failure | Per-isolate limiter is neither global nor durable; distributed abuse can evade it. Cloudflare-level rate rules may be needed |
 | SSRF or secret forwarding through source URL, query input, or redirect | Fixed NARA endpoint, HTTPS/host/authority/port checks, redirects rejected, no user-selectable outbound URL | A future adapter that accepts redirects or URLs could reopen SSRF. Revalidate every hop and DNS behavior before adding one |
-| Unofficial source presented as official evidence | Registry-based domains, adapter/provenance match, HTTPS and official URL required | An approved official domain can still host unrelated or compromised content. Human source-page review remains required |
+| Unofficial source or generic official-site page presented as primary evidence | Registry-based domains, adapter/provenance match, and HTTPS are required; researcher locators from manual sources must also match adapter-specific direct record-page or record-file paths, so generic search-results, status, home, publications, collection, and navigation pages are rejected | An allowlisted direct record or file can still be unrelated, mislabeled, incomplete, or compromised. Researcher confirmation and human source-page review remain required |
 | Subdomain confusion or malformed URL | Parsed URL and label-boundary subdomain comparison; HTTPS only | Registry changes can approve an overly broad parent domain. Review every domain addition and test deceptive suffixes |
 | Source failure triggers leak/mirror fallback | Per-source isolation and honest manual official links; no unofficial fallback | Users can independently leave the tool; reports must not treat those materials as primary official evidence |
 | Stored NARA API content violates current terms | Worker/browser `no-store`, upstream cache disabled, no raw NARA record return, locator-only IndexedDB and export sanitizer | A future persistence or export path could omit the shared sanitizer; regression tests remain required |
-| Full queries or addresses appear in logs | Worker observability disabled; no body/query/header logging; address used only for an in-memory hash | GitHub, Cloudflare, NARA, browser, proxy, or enterprise infrastructure may log independently. Private mode is not anonymity |
+| Full queries or addresses appear in logs | Worker observability disabled; no body/query/header logging; address used only for an in-memory hash; manual handoffs show exactly which terms will be sent and open only on user action | GitHub, Cloudflare, NARA, a manually selected official source, browser, proxy, or enterprise infrastructure may log independently. Private mode is not anonymity |
 | XSS through title, OCR, source metadata, or imported data | React text rendering, no source HTML injection, printable HTML escaping, CSP, no plugin objects | Future rich HTML, markdown, OCR highlighting, or PDF.js integration can bypass current assumptions; sanitize and test before use |
 | Spreadsheet formula injection in CSV | Values beginning with `=`, `+`, `-`, or `@` are prefixed | Spreadsheet behaviors vary; open exports in protected mode and preserve source text |
 | Malicious imported project | 20 MB byte cap, deep runtime schema and collection bounds, official-domain checks, React escaping, fixture claims cleared | Imported provenance and researcher judgments remain portable assertions rather than live source authentication; the UI marks them as not revalidated |
