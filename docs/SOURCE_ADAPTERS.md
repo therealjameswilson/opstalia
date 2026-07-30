@@ -58,7 +58,7 @@ interface SourceAdapter<RawRecord = unknown> {
 
 `AdapterContext` supplies an abort signal and retrieval timestamp. A `SourceSearchResponse` contains the source run, raw records where storage is permitted, normalized records, and warnings. The Worker and browser runtime-validate this response, retain the selected route/source identity, and recheck each normalized record through official-domain, result/file-URL, adapter-provenance, and source-specific record-ID binding rules before primary-index admission.
 
-Worker adapters are registered in `worker/src/adapters/registry.ts`. The route `/api/search/:sourceId` accepts only the fixed IDs `nara`, `nara-cia-rg263`, `nara-state-rg59`, `govinfo`, `nasa-ntrs`, and `osti-sti`; it is not an arbitrary URL proxy. The three static-index adapters are isolated client functions with the same `SourceSearchResponse` boundary and are dispatched by source ID in `src/search/client.ts`.
+Worker adapters are registered in `worker/src/adapters/registry.ts`. The route `/api/search/:sourceId` accepts only the fixed IDs `nara`, `nara-cia-rg263`, `nara-state-rg59`, `govinfo`, `nasa-ntrs`, and `osti-sti`; it is not an arbitrary URL proxy. The four static-index adapters are isolated client functions with the same `SourceSearchResponse` boundary and are dispatched by source ID in `src/search/client.ts`.
 
 ## Implemented automated adapters
 
@@ -156,6 +156,34 @@ The adapter returns title, document date, agency, archival location, appeal numb
 
 The schema-version-2 builder locates the canonical workbook header row, retains the first data entry, and returns the official row fields, release quarter, workbook URL, page URL, and a cautious `finding_aid_only` or `described_but_not_digitized` status. These are generally series-level descriptions; completion of declassification processing does not prove online availability or the absence of other access review.
 
+### NARA JFK assassination records — 2025 release page
+
+- **Status:** Beta, explicit opt-in
+- **Execution:** client-side, same-origin static index
+- **Coverage:** 2,709 distinct official PDF rows in the current release-page snapshot
+- **Build source:** `https://www.archives.gov/research/jfk/release-2025`
+- **Search fields:** exact RIF, official filename, and filename suffix/variant
+- **PDF content:** not fetched, mirrored, OCRed, or indexed
+
+The guarded builder fetches the single official server-rendered page, locates
+the table by its normalized headers, validates every direct PDF link, records
+the source hash and response metadata, and checks the parsed row count against
+NARA's declared batch total. Distinct URLs are preserved even when they share a
+base RIF; a RIF alone is not a safe deduplication key.
+
+NARA's current page contains a January 30, 2026 batch even though its title and
+file paths refer to 2025. Every current row reports `03/18/2025`, so Opstalia
+retains that table value only in the raw index record for audit. It is not
+searched, normalized as a file release date, used for sorting or ranking, or
+used to infer a true per-file batch. A filename containing `redacted` is not a
+visible-redaction finding; every listed PDF remains `not_determined` until
+human review.
+
+The unofficial Doctly JFK Markdown corpus prompted a coverage comparison, but
+it is not an adapter, build source, runtime dependency, text source, or release
+evidence. Opstalia searches only the official NARA manifest and cites only
+NARA URLs for these results.
+
 ## Manual adapters
 
 A manual adapter returns:
@@ -187,7 +215,7 @@ CIA remains `temporarily_unavailable`. During 2026-07-29 validation, the officia
 
 A researcher can record an official record or file URL found after a manual
 handoff only after confirming that the material is unclassified and publicly
-released. An approved domain is necessary but not sufficient. Version 1.1.0
+released. An approved domain is necessary but not sufficient. Version 1.2.0
 accepts CIA Reading Room `/readingroom/document/…` pages or direct Reading Room
 files, State FOIA `/DOCUMENTS/…` PDFs, FBI Vault `/at_download/file` locators,
 and direct public record files for other manual adapters. Home, search, status,
@@ -223,7 +251,7 @@ This is a discovery heuristic, not an assertion that the result is the sought do
 4. exact or subdomain match against the source’s official domains; and
 5. an official provenance URL.
 
-Local adapters filter every result through this policy. Each Worker adapter separately constructs its upstream URL from a fixed constant, and the Worker route accepts only registered adapter IDs. Redirect, credential, host, port, protocol, and result-URL checks remain source-specific.
+Local adapters filter every complete record, page, download, thumbnail, and digital-object URL through this policy. The NARA JFK adapter additionally binds the decoded PDF filename RIF and exact release-file path to the normalized document number and official release page. Each Worker adapter separately constructs its upstream URL from a fixed constant, and the Worker route accepts only registered adapter IDs. Redirect, credential, host, port, protocol, and result-URL checks remain source-specific.
 
 Do not add a broad domain merely to make a result pass. Add only domains controlled by or officially authenticated for the registered source.
 
@@ -252,6 +280,7 @@ Run one builder:
 npm run indexes:frus
 npm run indexes:iscap
 npm run indexes:ndc
+npm run indexes:jfk-2025
 ```
 
 Or refresh all:
@@ -259,6 +288,10 @@ Or refresh all:
 ```bash
 npm run indexes:refresh
 ```
+
+The combined command waits ten seconds between `archives.gov` acquisitions to
+honor NARA's published crawl-delay guidance. It never fetches each linked JFK
+PDF.
 
 The builders require network access to official public sources. Review:
 

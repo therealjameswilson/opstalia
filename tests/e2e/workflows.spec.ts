@@ -84,6 +84,53 @@ test.describe("Opstalia research workflows", () => {
     ).toHaveCount(3);
   });
 
+  test("searches the opt-in official NARA JFK release-file index by exact RIF", async ({ page }) => {
+    test.setTimeout(45_000);
+    await page.goto("./#new-search");
+    await page.getByRole("tab", { name: "Quick search" }).click();
+    await page
+      .getByLabel("Unclassified metadata and keywords")
+      .fill("104-10003-10041");
+    await page.getByLabel(/I acknowledge/).check();
+    await page.getByRole("button", { name: "Build search plan" }).click();
+
+    const jfkIndex = page.getByRole("checkbox", {
+      name: /NARA JFK Assassination Records/
+    });
+    await expect(jfkIndex).not.toBeChecked();
+    const checkedSources = page.locator(
+      ".source-selector input[type=checkbox]:checked"
+    );
+    while ((await checkedSources.count()) > 0) {
+      await checkedSources.first().uncheck();
+    }
+    await jfkIndex.check();
+    await expect(
+      page.getByText(
+        /does not search or admit Doctly text as official evidence/
+      )
+    ).toBeVisible();
+    await page
+      .getByRole("button", { name: "Run adapters and prepare handoffs" })
+      .click();
+
+    const progress = page
+      .getByRole("region", { name: "Source progress" })
+      .or(page.locator(".source-progress"));
+    await expect(
+      progress.getByText("NARA JFK Assassination Records — 2025 Release Page")
+    ).toBeVisible();
+    const result = page
+      .locator(".record-card")
+      .filter({ hasText: "104-10003-10041.pdf" });
+    await expect(result).toBeVisible({ timeout: 30_000 });
+    await expect(result.getByRole("link", { name: "Official record" })).toHaveAttribute(
+      "href",
+      "https://www.archives.gov/files/research/jfk/releases/2025/0318/104-10003-10041.pdf"
+    );
+    await expect(result).toContainText(/Undetermined/i);
+  });
+
   test("prepares honest State and CIA handoffs without treating either as zero-result search", async ({ page }) => {
     test.setTimeout(45_000);
     await page.context().grantPermissions(["clipboard-read", "clipboard-write"]);

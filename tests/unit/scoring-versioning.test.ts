@@ -70,6 +70,57 @@ describe("explainable scoring and versioning", () => {
     expect(groupVersions([left, version])).toHaveLength(1);
   });
 
+  it("never calls distinct NARA JFK files confirmed identical on a shared base RIF alone", () => {
+    const jfkRecord = (id: string, suffix: string) => {
+      const item = record({
+        id,
+        title: {
+          value: `124-10274-10029${suffix}.pdf`,
+          source: "NARA release table",
+          extractionMethod: "source_structured",
+          confidence: 1
+        },
+        documentNumber: {
+          value: "124-10274-10029",
+          source: "NARA release filename",
+          extractionMethod: "source_structured",
+          confidence: 1
+        },
+        extractedIdentifiers: ["124-10274-10029"],
+        textSnippet: {
+          value: `Official NARA filename 124-10274-10029${suffix}.pdf`,
+          source: "NARA release table",
+          extractionMethod: "source_structured",
+          confidence: 1
+        }
+      });
+      const officialUrl = `https://www.archives.gov/files/research/jfk/releases/2025/0318/124-10274-10029${suffix}.pdf`;
+      item.officialUrl.value = officialUrl;
+      item.recordPageUrl.value =
+        "https://www.archives.gov/research/jfk/release-2025";
+      item.provenance = {
+        adapterId: "nara-jfk-2025",
+        sourceId: "nara-jfk-2025",
+        officialDomain: "www.archives.gov",
+        officialRecordUrl: officialUrl,
+        retrievalTimestamp: "2026-07-30T00:00:00Z",
+        normalizationVersion: "1.2.0-nara-jfk-release-index"
+      };
+      return item;
+    };
+    const relationship = compareVersions(
+      jfkRecord("jfk-plain", ""),
+      jfkRecord("jfk-multirif", "_multirif_redacted")
+    );
+    expect(relationship).toMatchObject({
+      label: "probable_version",
+      score: 78
+    });
+    expect(relationship.reasons.join(" ")).toMatch(
+      /not automatically identical/i
+    );
+  });
+
   it("deduplicates the same NARA Catalog record across generic and scoped profiles", () => {
     const generic = record({
       id: "nara-generic",

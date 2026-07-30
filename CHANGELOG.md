@@ -2,6 +2,27 @@
 
 All notable changes to Opstalia are documented in this file. The project follows [Semantic Versioning](https://semver.org/).
 
+## [1.2.0] - 2026-07-30
+
+### Added
+
+- Opt-in beta search over a guarded, checked-in index of the official NARA JFK “2025 Documents Release” table, with 2,709 distinct official PDF rows searchable by exact RIF and filename metadata.
+- A source-page parser that records the official HTML hash and response metadata, validates the declared batch total, preserves multiple official files per RIF, and rejects malformed or unofficial file URLs.
+- Source-specific runtime binding between each NARA JFK PDF path, decoded filename RIF, normalized document number, release-page URL, and adapter provenance.
+- Exact JFK RIF extraction, browser-local persistence, recorded integration fixtures, security tests, and an end-to-end opt-in search workflow.
+
+### Changed
+
+- Advanced the source registry to 35 entries: 2 integrated, 8 beta, 20 manual, 1 temporarily unavailable, and 4 planned.
+- Made the local-index evidence gate validate every returned record, page, download, thumbnail, and digital-object URL and discard raw records whose normalized evidence fails.
+- Documented that NARA's current table reports March 18, 2025 for every row despite later batches on the same page; Opstalia retains that value only in the raw index record for audit and does not normalize it as a per-file release date.
+
+### Security
+
+- Did not ingest, search, display, cite, or treat the unofficial Doctly JFK Markdown corpus as official release evidence. The new adapter contains only NARA table metadata and official `archives.gov` PDF links.
+- Kept the source opt-in because it is a large, filename-level snapshot and because NARA warns that the collection may include living-person PII and copyrighted material.
+- Assigned `not_determined` with mandatory human review to every indexed file; a filename or posted PDF never establishes release in full or a visible-redaction finding.
+
 ## [1.1.0] - 2026-07-29
 
 ### Added

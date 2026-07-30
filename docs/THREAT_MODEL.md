@@ -1,7 +1,7 @@
 # Opstalia 1.0 threat model
 
 Status: public Internet release
-Last reviewed: 2026-07-29
+Last reviewed: 2026-07-30
 
 ## Scope
 
@@ -9,7 +9,7 @@ This threat model covers:
 
 - the React/Vite frontend served from GitHub Pages;
 - browser-local IndexedDB and in-memory state;
-- checked-in FRUS, ISCAP, and NDC indexes and their build scripts;
+- checked-in FRUS, ISCAP, NDC, and NARA JFK release-file indexes and their build scripts;
 - the Cloudflare Worker fixed adapter registry;
 - NARA Catalog, GovInfo, NASA NTRS, and OSTI.GOV upstream requests;
 - registered manual links and official-file viewers;
@@ -96,7 +96,7 @@ connection or synchronization with a closed network.
 | Upstream quota exhaustion or denial of service | 30/minute per ephemeral derived key, at most three Worker-backed plan variants per source, source timeout, bounded retries where implemented, partial failure | Per-isolate limiter is neither global nor durable; distributed abuse can evade it. Source-specific limits and Cloudflare-level rate rules may be needed |
 | SSRF or secret forwarding through source URL, source ID, query input, or redirect | Fixed adapter-ID registry; fixed per-adapter endpoints; HTTPS/host/authority/port checks; redirects rejected; no user-selectable outbound URL | A future adapter that accepts redirects or URLs could reopen SSRF. Revalidate every hop and DNS behavior before adding one |
 | Malformed or oversized upstream result reaches the browser | Worker and browser runtime-validate responses; streamed upstream JSON is capped at 12,000,000 bytes for NARA and 5,000,000 bytes for GovInfo/NTRS/OSTI; admission checks source identity, provenance, every result/file URL, and GovInfo/NTRS/OSTI record-ID binding; NARA also caps reported objects/OCR and exposes only recognized direct files on approved `archives.gov` hosts | A schema-valid source payload can still be misleading or expensive. Keep per-adapter bounds, rendering limits, and regression tests under review |
-| Unofficial source or generic official-site page presented as primary evidence | Registry-based domains, adapter/provenance match, and HTTPS are required; researcher locators from manual sources must also match adapter-specific direct record-page or record-file paths, so generic search-results, status, home, publications, collection, and navigation pages are rejected | An allowlisted direct record or file can still be unrelated, mislabeled, incomplete, or compromised. Researcher confirmation and human source-page review remain required |
+| Unofficial source or generic official-site page presented as primary evidence | Registry-based domains, adapter/provenance match, and HTTPS are required; researcher locators from manual sources must also match adapter-specific direct record-page or record-file paths, so generic search-results, status, home, publications, collection, and navigation pages are rejected. NARA JFK results require an exact release-file path plus filename-RIF binding; Doctly/GitHub content is excluded | An allowlisted direct record or file can still be unrelated, mislabeled, incomplete, or compromised. Researcher confirmation and human source-page review remain required |
 | Subdomain confusion or malformed URL | Parsed URL and label-boundary subdomain comparison; HTTPS only | Registry changes can approve an overly broad parent domain. Review every domain addition and test deceptive suffixes |
 | Source failure triggers leak/mirror fallback | Per-source isolation and honest manual official links; no unofficial fallback | Users can independently leave the tool; reports must not treat those materials as primary official evidence |
 | Stored NARA API content violates current terms | Worker/browser `no-store`, upstream cache disabled, no raw NARA record return, locator-only IndexedDB and export sanitizer for general and RG-profile results | A future persistence or export path could omit the shared sanitizer; regression tests remain required |
@@ -111,7 +111,7 @@ connection or synchronization with a closed network.
 | Data loss from local-only storage | Explicit JSON/report export and import; clear/delete controls | Browser eviction, user clearing, profile loss, or device failure can destroy projects. Exports create new copies with separate privacy risk |
 | Private-mode data unexpectedly retained | No project persistence, no share fragment, in-memory workspace, Worker no-store | Static assets/indexes may cache; screenshots, downloads, copied text, browser/extension state, provider logs, and previously saved projects remain |
 | Cross-project access on GitHub Pages origin | Namespaced IndexedDB and no secrets in browser storage | Same-origin scripts under the GitHub Pages host are a broad trust boundary. Do not store restricted data; dedicated origin would reduce exposure |
-| Pinned index tampering or staleness | FRUS commit pin; ISCAP/NDC source SHA-256; official URLs, generation dates, schema/minimum-size checks, known limitations | Hash records what was fetched but is not an independent signature. Maintainer/build compromise and stale source data remain possible |
+| Pinned index tampering or staleness | FRUS commit pin; ISCAP/NDC/NARA-JFK source SHA-256; official URLs, generation dates, schema/minimum-size checks, known limitations; JFK declared-total and URL/RIF validation | Hash records what was fetched but is not an independent signature. Maintainer/build compromise, mutable official tables, stale source data, and incorrect official metadata remain possible |
 | Dependency or Actions supply-chain compromise | Lockfile, minimal runtime dependencies, audit/scan scripts, intended CI checks | Lockfiles are not signatures. Pin Actions, review lockfile changes, use least-privilege tokens, and verify release artifacts |
 | Incorrect "released in full" inference | Controlled status vocabulary; full requires explicit official language or recorded researcher decision | Source metadata may be ambiguous or wrong. Official determination and document-level review control |
 | Redaction or exemption false positive | Deterministic patterns, confidence, source code dictionary, false-positive control, "ambiguous" label | OCR corruption and agency-specific legends can mislead. Detection is a lead, not a legal or classification determination |
@@ -227,7 +227,7 @@ A release review should retain:
 
 - the source registry version and validation date;
 - exemption dictionary version and verification date;
-- FRUS commit and ISCAP/NDC source hashes;
+- FRUS commit and ISCAP/NDC/NARA-JFK source hashes;
 - test, accessibility, dependency-audit, and secret-scan results;
 - the release commit and deployed frontend/Worker identities;
 - confirmation that NARA and GovInfo keys are absent from repository history, source

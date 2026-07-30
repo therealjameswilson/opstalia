@@ -1,10 +1,9 @@
 import "@testing-library/jest-dom/vitest";
+import { webcrypto } from "node:crypto";
 
-if (!globalThis.crypto?.randomUUID) {
+if (!globalThis.crypto?.randomUUID || !globalThis.crypto?.subtle) {
   Object.defineProperty(globalThis, "crypto", {
-    value: {
-      randomUUID: () => "00000000-0000-4000-8000-000000000000",
-      subtle: globalThis.crypto?.subtle
-    }
+    configurable: true,
+    value: webcrypto
   });
 }

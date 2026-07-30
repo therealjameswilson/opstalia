@@ -61,7 +61,9 @@ The current automated paths are:
   search through the Worker without an Opstalia source API key;
 - **FRUS:** browser-local search of a pinned partial index;
 - **ISCAP:** browser-local search of a pinned beta releases-table index; and
-- **NDC:** browser-local search of a pinned beta release-list index.
+- **NDC:** browser-local search of a pinned beta release-list index; and
+- **NARA JFK release page:** opt-in browser-local search of a pinned official
+  filename/RIF manifest, without PDF text or unofficial converted text.
 
 Other registered repositories use manual links or remain planned unless their
 coverage entry says otherwise. “Manual” means that Opstalia does not normalize
@@ -82,9 +84,16 @@ All returned record and file URLs must pass the source allowlist. GovInfo PDF,
 NTRS download, and OSTI full-text paths must also bind to the package/granule,
 citation, or OSTI identifier on the official record page. NARA exposes a
 digital-object link only for a recognized direct public file on an approved
-`archives.gov` host.
+`archives.gov` host. The NARA JFK adapter further requires the official
+release-page path, a direct NARA release PDF, and agreement between the decoded
+filename RIF and normalized document number.
 
 Opstalia 1.0 excludes leaked-document sites, unofficial mirrors, news-media caches, commercial or crowdsourced archives, personal sites, anonymous hosts, social-media uploads, and unofficial GitHub copies as release evidence.
+
+The Doctly JFK Markdown repository is one such unofficial conversion. Opstalia
+does not search its content or use it for citations, snippets, metadata,
+release status, or redaction analysis. For JFK release-file results, the NARA
+listing and direct NARA PDF are the evidence.
 
 The source registry, not scattered code, defines approved domains. A source repository's official GitHub project may provide build provenance for an index, but the result's release-evidence link must still point to the registered official government site.
 

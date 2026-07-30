@@ -182,4 +182,86 @@ describe("federated source orchestration", () => {
       message: "No enabled query in the plan targets this source."
     });
   });
+
+  it("dispatches the opt-in NARA JFK source to its browser-local index adapter", async () => {
+    const source = sourceRegistry.find(
+      (entry) => entry.id === "nara-jfk-2025"
+    )!;
+    const officialUrl =
+      "https://www.archives.gov/files/research/jfk/releases/2025/0318/104-10003-10041.pdf";
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          sourceId: "nara-jfk-2025",
+          sourcePage:
+            "https://www.archives.gov/research/jfk/release-2025",
+          limitations: [],
+          records: [
+            {
+              id: "jfk-file-1",
+              fileName: "104-10003-10041.pdf",
+              rifNumber: "104-10003-10041",
+              fileVariant: "",
+              sourceReportedRowDate: "03/18/2025",
+              officialUrl,
+              recordPageUrl:
+                "https://www.archives.gov/research/jfk/release-2025",
+              searchableText:
+                "104-10003-10041 104-10003-10041.pdf",
+              releaseStatus: "not_determined",
+              releaseDeterminationBasis:
+                "No record-specific full-release determination is present."
+            }
+          ]
+        }),
+        {
+          status: 200,
+          headers: { "Content-Type": "application/json" }
+        }
+      )
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const { runFederatedSearch } = await import("../../src/search/client");
+    const jfkPlan: SearchPlan = {
+      id: "jfk-plan",
+      createdAt: "2026-07-30T00:00:00Z",
+      target: {
+        mode: "guided",
+        identifiers: "104-10003-10041"
+      },
+      queries: [
+        {
+          id: "jfk-query",
+          label: "Exact RIF",
+          text: "104-10003-10041",
+          kind: "identifier",
+          enabled: true,
+          sourceIds: ["nara-jfk-2025"],
+          explanation: "Exact official release filename identifier"
+        }
+      ],
+      sourceSelectionStrategy: ["Official NARA JFK release index"]
+    };
+    const result = await runFederatedSearch(
+      jfkPlan,
+      [source],
+      false,
+      vi.fn(),
+      vi.fn()
+    );
+
+    expect(fetchMock).toHaveBeenCalledOnce();
+    expect(String(fetchMock.mock.calls[0]?.[0])).toContain(
+      "data/indexes/jfk-2025.json"
+    );
+    expect(result.sourceRuns[0]).toMatchObject({
+      sourceId: "nara-jfk-2025",
+      status: "complete",
+      resultCount: 1
+    });
+    expect(result.records[0]).toMatchObject({
+      documentNumber: { value: "104-10003-10041" },
+      officialUrl: { value: officialUrl }
+    });
+  });
 });

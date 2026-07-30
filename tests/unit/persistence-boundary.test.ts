@@ -157,6 +157,53 @@ describe("NARA persistence boundary", () => {
     expect(JSON.stringify(saved)).not.toContain("Transient profile metadata");
   });
 
+  it("retains the checked-in NARA JFK public index instead of treating it as transient Catalog API data", () => {
+    const project = makeNaraProject();
+    const record = project.records[0];
+    const officialUrl =
+      "https://www.archives.gov/files/research/jfk/releases/2025/0318/104-10003-10041.pdf";
+    record.id = "nara-jfk-2025-file";
+    record.title.value = "104-10003-10041.pdf";
+    record.officialUrl.value = officialUrl;
+    record.recordPageUrl.value =
+      "https://www.archives.gov/research/jfk/release-2025";
+    record.naraNaid = undefined;
+    record.documentNumber = {
+      value: "104-10003-10041",
+      source: "NARA release filename",
+      extractionMethod: "source_structured",
+      confidence: 1
+    };
+    record.provenance = {
+      ...record.provenance,
+      adapterId: "nara-jfk-2025",
+      sourceId: "nara-jfk-2025",
+      officialDomain: "www.archives.gov",
+      officialRecordUrl: officialUrl,
+      normalizationVersion: "1.2.0-nara-jfk-release-index"
+    };
+    project.rawRecords = [
+      {
+        id: "raw-jfk",
+        sourceId: "nara-jfk-2025",
+        retrievalTimestamp: "2026-07-30T00:00:00Z",
+        payload: { fileName: "104-10003-10041.pdf" }
+      }
+    ];
+
+    const saved = sanitizeProjectForPersistence(project);
+    expect(saved.rawRecords).toHaveLength(1);
+    expect(saved.records[0]).toMatchObject({
+      id: "nara-jfk-2025-file",
+      title: { value: "104-10003-10041.pdf" },
+      documentNumber: { value: "104-10003-10041" },
+      provenance: {
+        sourceId: "nara-jfk-2025",
+        normalizationVersion: "1.2.0-nara-jfk-release-index"
+      }
+    });
+  });
+
   it("deep-validates imports and rejects URLs outside the registered source allowlist", () => {
     const valid = makeNaraProject();
     valid.fixture = true;

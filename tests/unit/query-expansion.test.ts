@@ -27,4 +27,19 @@ describe("deterministic query expansion", () => {
     const plan = buildSearchPlan({ mode: "quick", quickQuery: "NAID 1634221" });
     expect(plan.queries).toEqual(expect.arrayContaining([expect.objectContaining({ kind: "identifier", text: "1634221" })]));
   });
+
+  it("creates an exact JFK RIF identifier query", () => {
+    const plan = buildSearchPlan({
+      mode: "quick",
+      quickQuery: "104-10003-10041"
+    });
+    expect(plan.queries).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: "identifier",
+          text: "104-10003-10041"
+        })
+      ])
+    );
+  });
 });

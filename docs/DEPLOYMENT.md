@@ -65,7 +65,7 @@ For GitHub Pages, the workflow uses GitHub’s short-lived `GITHUB_TOKEN`; no cu
 
 ## Local verification
 
-The three static indexes need no Worker or API key:
+The four static indexes need no Worker or API key:
 
 ```bash
 npm run dev
@@ -235,7 +235,7 @@ In repository settings:
 2. Under **Build and deployment**, select **GitHub Actions**.
 3. Keep the public base path `/opstalia/`; `vite.config.ts` already builds for it.
 
-The frontend workflow should pass `vars.VITE_API_BASE` into the Vite build. If the variable is missing, it should pass an empty value rather than fail. This preserves a deployable static site whose Worker-backed sources report setup status while FRUS, ISCAP, NDC, and manual adapters remain available.
+The frontend workflow should pass `vars.VITE_API_BASE` into the Vite build. If the variable is missing, it should pass an empty value rather than fail. This preserves a deployable static site whose Worker-backed sources report setup status while FRUS, ISCAP, NDC, the optional NARA JFK index, and manual adapters remain available.
 
 ### Optional automated Worker deployment
 
@@ -283,10 +283,11 @@ Also confirm:
 - the header and search acknowledgement contain the unclassified warning;
 - the site says it is independent and not an official Government site;
 - no UI asks for a classified document;
-- the source dashboard reports 34 sources: 2 integrated, 7 beta, 20 manual, 1 temporarily unavailable, and 4 planned;
-- the FRUS, ISCAP, and NDC counts remain 752, 529, and 133;
+- the source dashboard reports 35 sources: 2 integrated, 8 beta, 20 manual, 1 temporarily unavailable, and 4 planned;
+- the FRUS, ISCAP, NDC, and NARA JFK counts remain 752, 529, 133, and 2,709;
 - Worker and upstream API requests use the intended no-store policy;
 - native CIA and State remain manual/unavailable, while the separate opt-in NARA RG 263/RG 59 profiles are labeled as NARA-only discovery;
+- the NARA JFK index is opt-in, links only to official release-path PDFs, and contains no Doctly/GitHub evidence URLs;
 - streamed request/response limits and source-specific file-to-record ID checks pass their security tests;
 - GovInfo, NTRS, and OSTI carry their publication/STI—not declassification-proof—caveats; and
 - the application states that Opstalia-c is not connected.
@@ -298,7 +299,7 @@ After review:
 ```bash
 git status --short
 git add .
-git commit -m "Release Opstalia 1.1.0"
+git commit -m "Release Opstalia 1.2.0"
 git push origin main
 ```
 
@@ -321,8 +322,8 @@ Then verify in a browser:
 1. the application loads at the `/opstalia/` path;
 2. the independent-site and unclassified notices are visible;
 3. a search cannot proceed without acknowledgement;
-4. FRUS, ISCAP, and NDC return local-index results for known fixture terms;
-5. Worker health reports version `1.1.0`, the registered adapters, and only Boolean secret readiness;
+4. FRUS, ISCAP, NDC, and the optional NARA JFK index return local-index results for known fixture terms or RIFs;
+5. Worker health reports version `1.2.0`, the registered adapters, and only Boolean secret readiness;
 6. when `NARA_API_KEY` is installed, an exact general-NARA NAID search produces a transient official result; after explicitly opting into each RG profile, its results remain visibly NARA-only;
 7. when `GOVINFO_API_KEY` is installed, GovInfo runs without implying declassification evidence;
 8. NTRS and OSTI run through the Worker without a source API key and retain their STI/publication caveats;

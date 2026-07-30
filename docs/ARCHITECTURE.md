@@ -5,10 +5,10 @@
 **ADR-001 — Static research workspace plus a minimal secret-bearing proxy**
 
 - **Status:** Accepted for 1.0
-- **Date:** 2026-07-29
-- **Decision:** Host a React/Vite application on GitHub Pages; keep research projects in browser-local IndexedDB; search reproducibly pinned FRUS, ISCAP, and NDC indexes in the browser; and use a narrow Cloudflare Worker registry for documented fixed-upstream APIs.
+- **Date:** 2026-07-30
+- **Decision:** Host a React/Vite application on GitHub Pages; keep research projects in browser-local IndexedDB; search reproducibly pinned FRUS, ISCAP, NDC, and official NARA JFK release-file indexes in the browser; and use a narrow Cloudflare Worker registry for documented fixed-upstream APIs.
 - **Reason:** GitHub Pages provides a low-cost, reviewable public frontend, while the Worker prevents NARA and GovInfo keys from entering browser JavaScript and mediates official APIs without supported browser CORS. Local project storage avoids creating a public user database or account system. Pinned indexes avoid brittle runtime scraping where no suitable public search API exists.
-- **Consequence:** Worker-backed search requires a separately deployed Worker. NARA and GovInfo additionally require their own server-side keys; NTRS and OSTI do not. FRUS, ISCAP, and NDC coverage is bounded by checked-in snapshots. Manual adapters remain necessary for unsupported official systems.
+- **Consequence:** Worker-backed search requires a separately deployed Worker. NARA and GovInfo additionally require their own server-side keys; NTRS and OSTI do not. Static-index coverage is bounded by checked-in snapshots; the NARA JFK snapshot is filename-level and opt-in. Manual adapters remain necessary for unsupported official systems.
 
 ## Security boundary
 
@@ -23,7 +23,7 @@ flowchart LR
     U[Researcher browser]
     P[GitHub Pages<br/>React, TypeScript, Vite]
     IDB[(IndexedDB<br/>local projects)]
-    IDX[Same-origin static indexes<br/>FRUS 752, ISCAP 529, NDC 133]
+    IDX[Same-origin static indexes<br/>FRUS 752, ISCAP 529, NDC 133, NARA JFK 2,709]
     W[Cloudflare Worker<br/>fixed adapter registry, validation, CORS, rate limit]
     N[NARA Catalog API v2]
     G[GovInfo Search Service]
@@ -121,7 +121,7 @@ without preventing other sources from completing.
 3. The researcher chooses registry sources.
 4. Sources run concurrently. Queries within each source run sequentially.
 5. Worker-backed sources are capped at the first three enabled plan queries explicitly targeting that source, with 20 requested results per query. A query is eligible only when its `sourceIds` includes the source; an empty list targets no source. This protects keyed quotas and bounds public-API load.
-6. Local FRUS, ISCAP, and NDC adapters may evaluate every enabled query targeted to that source.
+6. Local FRUS, ISCAP, NDC, and opt-in NARA JFK release-file adapters may evaluate every enabled query targeted to that source.
 7. NARA RG 263/RG 59 profiles are opt-in separate NARA Catalog sources. The returned hierarchy is checked before an RG-specific label is used, and these profiles never change the native CIA or State FOIA status.
 8. Manual sources generate a local handoff worksheet. State FOIA receives a query-aware official URL; unavailable CIA receives copyable retry terms and official status/publication links.
 9. Nothing opens automatically. The researcher must initiate navigation to an official manual source.
@@ -164,7 +164,7 @@ NARA API results—including `nara-cia-rg263` and `nara-state-rg59` profile resu
 - removes API-derived metadata, digital objects, exemption detections, extracted identifiers other than the NAID, score, and match explanation; and
 - removes automatic NARA-derived version-group labels, scores, and reasons while retaining an explicitly recorded researcher decision.
 
-FRUS, ISCAP, and NDC static-index records may be retained because they are checked-in public source snapshots with build provenance. GovInfo, NTRS, and OSTI public response records may be retained in browser-local projects under their declared registry policies; the Worker itself does not persist them.
+FRUS, ISCAP, NDC, and NARA JFK static-index records may be retained because they are checked-in public source snapshots with build provenance. The JFK artifact contains only official filename/RIF table metadata and NARA PDF links, not PDF text or Doctly content. GovInfo, NTRS, and OSTI public response records may be retained in browser-local projects under their declared registry policies; the Worker itself does not persist them.
 
 ## Official-source enforcement
 
@@ -179,7 +179,9 @@ FRUS, ISCAP, and NDC static-index records may be retained because they are check
 
 Every normalized result/file URL must pass the selected source's allowlist.
 GovInfo PDFs must bind to the official package/granule IDs, NTRS downloads to
-the official citation ID, and OSTI full text to the official OSTI ID.
+the official citation ID, and OSTI full text to the official OSTI ID. NARA JFK
+PDFs must use the recognized release-file path and have a decoded filename RIF
+matching the normalized document number.
 
 An approved hostname is necessary but not sufficient for a manual-source
 locator. Generic search-results, status, home, publications, collection, and
@@ -190,15 +192,22 @@ The Worker separately applies source-specific outbound SSRF allowlists. Requests
 
 ## Build-time source indexes
 
-The repository ships three static indexes under `public/data/indexes/`:
+The repository ships four static indexes under `public/data/indexes/`:
 
 | Index | Records | Build provenance |
 |---|---:|---|
 | FRUS | 752 documents / 3 volumes | `HistoryAtState/frus-unbound` at commit `56d9b6899758c7de95de58b48b20507a1edb9f9f` |
 | ISCAP | 529 objects | Official ISCAP releases HTML plus a recorded SHA-256 |
 | NDC | 133 entries | Official FY2026 Q3 XLSX plus a recorded SHA-256; schema-version-2 parser identifies the canonical header row |
+| NARA JFK release page | 2,709 official PDF rows | Official release-page HTML plus response metadata and recorded SHA-256; guarded parser preserves distinct URL variants |
 
 These are deployment assets, not claims of complete repository coverage. Refresh scripts fetch official sources during a controlled development build; end-user searches do not scrape those sites at runtime.
+
+The NARA JFK page currently includes a January 2026 batch while reporting
+March 18, 2025 for every row. The adapter retains that inconsistency only in
+raw index records for audit; it does not normalize the value as a file release
+date, search it, or infer actual per-file tranche membership. It does not
+ingest the unofficial Doctly Markdown corpus.
 
 ## Release and analysis design
 

@@ -63,11 +63,19 @@ The same rule applies to the opt-in `nara-cia-rg263` and `nara-state-rg59` profi
 
 ### 4. Search appropriate official datasets in the browser
 
-FRUS, ISCAP, and NDC use checked-in static indexes generated during controlled source-refresh operations. Runtime search occurs in the browser, avoiding brittle runtime scraping and allowing ordinary application CI and deployment to remain independent of government-site availability.
+FRUS, ISCAP, NDC, and the opt-in NARA JFK release-file manifest use checked-in static indexes generated during controlled source-refresh operations. Runtime search occurs in the browser, avoiding brittle runtime scraping and allowing ordinary application CI and deployment to remain independent of government-site availability.
 
 The 1.0 FRUS index is explicitly partial: 752 documents from `frus1981-88v03`, `frus1981-88v05`, and `frus1981-88v06`, generated at pinned commit `56d9b6899758c7de95de58b48b20507a1edb9f9f`. No architecture or UI text may imply complete FRUS-series coverage.
 
 ISCAP and NDC indexes are labeled beta because their upstream table and workbook structures can change and because their entries do not necessarily represent item-level full releases. The current NDC schema-version-2 index contains 133 FY2026 Q3 entries; its builder identifies the canonical workbook header row rather than inferring a header from a data row.
+
+The NARA JFK index is also beta. Its guarded builder reads only the official
+NARA table and emits filename/RIF metadata plus official NARA PDF links. The
+current page includes a 2026 batch while reporting the same March 18, 2025
+value for every row, so the adapter retains that value only in raw index
+records and does not expose it as a normalized file release date or infer
+actual per-file batch membership. Unofficial Doctly conversions are excluded
+from build inputs and evidence.
 
 ### 5. Add documented public APIs only with corpus-specific caveats
 
@@ -152,7 +160,7 @@ Any future closed-network relationship requires a new ADR, separate deployment a
 - NARA and GovInfo are independently unavailable until their respective source keys are configured; NTRS and OSTI do not require source keys.
 - NARA results cannot be cached or fully restored from a saved project under current terms.
 - Static indexes become stale and require controlled refreshes.
-- The partial FRUS index and beta ISCAP/NDC/API adapters provide useful but non-exhaustive coverage.
+- The partial FRUS index and beta ISCAP/NDC/NARA-JFK/API adapters provide useful but non-exhaustive coverage.
 - Manual sources require researchers to leave Opstalia and record findings themselves.
 - Browser storage provides no cross-device synchronization, collaboration, or managed backup.
 - Deterministic matching and marking detection miss relationships that a human may recognize.

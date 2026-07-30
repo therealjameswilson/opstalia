@@ -1,6 +1,6 @@
 # Privacy statement
 
-Effective: 2026-07-29
+Effective: 2026-07-30
 
 Opstalia 1.0 is designed to minimize data collection. It has no user accounts,
 third-party analytics, advertising, behavioral tracking, or remote fonts.
@@ -37,9 +37,12 @@ Your browser -- user-initiated navigation, including prepared terms when shown -
                                                                                   and its service providers
 ```
 
-FRUS, ISCAP, and NDC 1.0 searches run against checked-in public indexes delivered
-with the frontend. They do not make a runtime search request to those upstream
-sites. A manual adapter prepares a local worksheet. State FOIA can receive
+FRUS, ISCAP, NDC, and the optional NARA JFK release-file search run against
+checked-in public indexes delivered by the frontend. They do not make a runtime
+search request to those upstream sites. Selecting the JFK index fetches only its
+fixed same-origin JSON asset from GitHub Pages; the search terms are evaluated
+in page memory and are not placed in that asset request. A manual adapter prepares
+a local worksheet. State FOIA can receive
 prepared terms and supported filters in its official URL only when the
 researcher explicitly opens the handoff. CIA retry terms remain local unless
 the researcher copies or retries them. No manual source opens automatically.
@@ -49,7 +52,7 @@ the researcher copies or retries them. No manual source opens automatically.
 | Action | Recipient | Data sent |
 | --- | --- | --- |
 | Load Opstalia | GitHub Pages | Ordinary web-request data for HTML, JavaScript, CSS, and pinned public indexes, including network metadata made available to the host |
-| Search FRUS, ISCAP, or NDC | No runtime search service | The query is evaluated in page memory against a static index already delivered by GitHub Pages |
+| Search FRUS, ISCAP, NDC, or the NARA JFK release-file index | No runtime official-source search service | GitHub Pages may receive a request for the fixed static index asset; the query itself is evaluated in page memory and is not sent to NARA or Doctly |
 | Search NARA, a NARA record-group profile, GovInfo, NTRS, or OSTI | Cloudflare Worker | A validated search object containing the unclassified target metadata except research notes, one generated or edited query, limit/cursor if present, and the private-mode flag |
 | Worker searches NARA | NARA Catalog API | Query text, limit, API credential, and supported filters such as NAID, dates, title, creator, geography, and material type |
 | Worker searches GovInfo | GovInfo Search Service | Query text, page size/cursor, sort, and the server-side GovInfo API credential |
@@ -122,6 +125,14 @@ metadata. The official record can always be revisited through the saved NARA
 URL. The canonical technical policy is recorded in the `nara`,
 `nara-cia-rg263`, and `nara-state-rg59` entries of
 [`data/sources.json`](data/sources.json).
+
+The separate `nara-jfk-2025` adapter is not a Catalog API request. It searches a
+checked-in snapshot of public filenames, RIFs, raw source-table row dates, and
+official NARA PDF URLs parsed from NARA's release page. That snapshot can be
+stored in browser-local projects because it is a public build artifact rather
+than a response from the Catalog API. Opstalia does not include NARA PDF text or
+the unofficial Doctly Markdown corpus in the snapshot. Opening an official PDF
+sends an ordinary browser request to NARA.
 
 ## Cloudflare Worker processing
 

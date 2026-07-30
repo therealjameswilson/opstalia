@@ -23,6 +23,7 @@ const SOURCE_STRATEGY = [
   "Search NARA Catalog metadata and digital objects, including exact NAIDs and archival identifiers.",
   "Search the official FRUS corpus for published document text, dates, persons, source notes, and editorial context.",
   "Search the ISCAP release index for appeal numbers, titles, originating agencies, and official released files.",
+  "When selected, search NARA's official JFK release-file index by exact RIF and filename metadata; do not use unofficial converted text as release evidence.",
   "Offer official manual-search links when an agency does not expose a stable, permissible automated search interface.",
   "Keep failed sources isolated and preserve the exact source status in the research report."
 ];
@@ -97,6 +98,18 @@ export function buildSearchPlan(target: SearchTarget): SearchPlan {
     addQuery(queries, "exact_phrase", "Exact phrase", `"${target.exactPhrase.replaceAll('"', "")}"`, "Preserves the supplied phrase.");
   }
 
+  for (const identifier of extractIdentifiers(
+    target.identifiers || target.quickQuery || ""
+  )) {
+    addQuery(
+      queries,
+      "identifier",
+      `Identifier: ${identifier}`,
+      identifier,
+      "Searches the exact normalized identifier."
+    );
+  }
+
   addQuery(
     queries,
     "broad_keyword",
@@ -113,10 +126,6 @@ export function buildSearchPlan(target: SearchTarget): SearchPlan {
       `${target.titleOrSubject} ${target.authorSender}`,
       "Prioritizes a likely title or subject with the sender."
     );
-  }
-
-  for (const identifier of extractIdentifiers(target.identifiers || target.quickQuery || "")) {
-    addQuery(queries, "identifier", `Identifier: ${identifier}`, identifier, "Searches the exact normalized identifier.");
   }
 
   for (const name of [...nameVariants(target.authorSender), ...nameVariants(target.recipient)].slice(0, 8)) {

@@ -1,6 +1,6 @@
 {
   "name": "opstalia",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "private": true,
   "type": "module",
   "description": "OPSTALIA 1.0 — an independent, unclassified declassified-records search engine for official U.S. Government repositories.",
@@ -28,7 +28,8 @@
     "indexes:frus": "node scripts/build-frus-index.mjs",
     "indexes:iscap": "node scripts/build-iscap-index.mjs",
     "indexes:ndc": "node scripts/build-ndc-index.mjs",
-    "indexes:refresh": "npm run indexes:frus && npm run indexes:iscap && npm run indexes:ndc"
+    "indexes:jfk-2025": "node scripts/build-jfk-2025-index.mjs",
+    "indexes:refresh": "npm run indexes:frus && npm run indexes:iscap && sleep 10 && npm run indexes:ndc && sleep 10 && npm run indexes:jfk-2025"
   },
   "dependencies": {
     "idb": "8.0.3",

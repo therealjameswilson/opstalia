@@ -43,6 +43,7 @@ const OPTIONAL_NARA_PROFILE_IDS = new Set([
   "nara-cia-rg263",
   "nara-state-rg59"
 ]);
+const OPTIONAL_OFFICIAL_INDEX_IDS = new Set(["nara-jfk-2025"]);
 
 function upsertRun(runs: SourceRun[], next: SourceRun): SourceRun[] {
   return [...runs.filter((run) => run.sourceId !== next.sourceId), next].sort((left, right) => left.sourceId.localeCompare(right.sourceId));
@@ -641,6 +642,12 @@ export function SearchPage({ project, onProjectUpdate, onCompare }: SearchPagePr
                   )
                 },
                 {
+                  label: "Optional official collection indexes",
+                  sources: sourceRegistry.filter((source) =>
+                    OPTIONAL_OFFICIAL_INDEX_IDS.has(source.id)
+                  )
+                },
+                {
                   label: "Manual searches to prepare",
                   sources: sourceRegistry.filter(
                     (source) =>
@@ -681,6 +688,10 @@ export function SearchPage({ project, onProjectUpdate, onCompare }: SearchPagePr
                   </div>
                 )
               ))}
+              <p className="fine-print">
+                The optional JFK index searches only filenames and RIF identifiers published by NARA,
+                then links to the official PDFs. It does not search or admit Doctly text as official evidence.
+              </p>
               <details>
                 <summary>Add another registered official source</summary>
                 {sourceRegistry
@@ -688,7 +699,8 @@ export function SearchPage({ project, onProjectUpdate, onCompare }: SearchPagePr
                     (source) =>
                       !source.enabledByDefault &&
                       source.searchCapability !== "planned" &&
-                      !OPTIONAL_NARA_PROFILE_IDS.has(source.id)
+                      !OPTIONAL_NARA_PROFILE_IDS.has(source.id) &&
+                      !OPTIONAL_OFFICIAL_INDEX_IDS.has(source.id)
                   )
                   .map((source) => (
                   <label key={source.id}>
@@ -713,8 +725,10 @@ export function SearchPage({ project, onProjectUpdate, onCompare }: SearchPagePr
             <p>
               Each Worker-backed source is capped at the first three applicable plan queries.
               The NARA Catalog profiles share the NARA API quota and search NARA holdings only;
-              they do not search the native CIA or State FOIA reading rooms. Manual sources
-              receive a prepared handoff only, and nothing opens automatically.
+              they do not search the native CIA or State FOIA reading rooms. The optional JFK
+              release index searches a checked-in official NARA filename manifest without
+              sending the query to a backend. Manual sources receive a prepared handoff only,
+              and nothing opens automatically.
             </p>
             {running ? (
               <button className="button button-danger" onClick={() => abortRef.current?.abort()}>Stop search</button>
