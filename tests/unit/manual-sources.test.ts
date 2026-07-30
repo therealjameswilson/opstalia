@@ -8,6 +8,8 @@ import { isApprovedOfficialUrl } from "../../src/security/url-policy";
 
 const state = sourceRegistry.find((source) => source.id === "state-foia")!;
 const cia = sourceRegistry.find((source) => source.id === "cia")!;
+const naraCia = sourceRegistry.find((source) => source.id === "nara-cia-rg263")!;
+const epa = sourceRegistry.find((source) => source.id === "epa")!;
 const govinfo = sourceRegistry.find((source) => source.id === "govinfo")!;
 
 afterEach(() => {
@@ -137,16 +139,76 @@ describe("manual official-source handoffs", () => {
       mode: "quick",
       quickQuery: "Malta Summit Scowcroft Bush"
     });
-    const result = await runFederatedSearch(plan, [govinfo], false, vi.fn(), vi.fn());
+    const result = await runFederatedSearch(plan, [epa], false, vi.fn(), vi.fn());
 
     expect(result.sourceRuns).toHaveLength(1);
     expect(result.sourceRuns[0]).toMatchObject({
-      sourceId: "govinfo",
+      sourceId: "epa",
       status: "blocked",
       resultCount: 0
     });
     expect(result.sourceRuns[0].manualHandoff).toBeUndefined();
     expect(result.sourceRuns[0].manualSearchUrl).toBeUndefined();
+  });
+
+  it("runs the separate NARA CIA profile only after its source ID is added to the plan", async () => {
+    const plan = buildSearchPlan({
+      mode: "quick",
+      quickQuery: "Malta Summit Scowcroft Bush"
+    });
+    expect(plan.queries[0].sourceIds).toContain("nara");
+    expect(plan.queries[0].sourceIds).not.toContain("nara-cia-rg263");
+    plan.queries = plan.queries.map((query) => ({
+      ...query,
+      sourceIds: [...query.sourceIds, "nara-cia-rg263"]
+    }));
+
+    const result = await runFederatedSearch(plan, [naraCia], false, vi.fn(), vi.fn());
+
+    expect(result.sourceRuns[0]).toMatchObject({
+      sourceId: "nara-cia-rg263",
+      status: "temporarily_unavailable",
+      manualSearchUrl: "https://catalog.archives.gov/"
+    });
+    expect(result.sourceRuns[0].message).not.toMatch(/No enabled query/);
+    expect(result.warnings.join(" ")).toMatch(/does not search the native CIA FOIA/i);
+  });
+
+  it("runs a selected documented remote API after its source ID is added to the plan", async () => {
+    const plan = buildSearchPlan({
+      mode: "quick",
+      quickQuery: "Malta Summit"
+    });
+    expect(plan.queries.every((query) => !query.sourceIds.includes("govinfo"))).toBe(true);
+    plan.queries = plan.queries.map((query) => ({
+      ...query,
+      sourceIds: [...query.sourceIds, "govinfo"]
+    }));
+
+    const result = await runFederatedSearch(plan, [govinfo], false, vi.fn(), vi.fn());
+
+    expect(result.sourceRuns[0]).toMatchObject({
+      sourceId: "govinfo",
+      status: "temporarily_unavailable",
+      resultCount: 0,
+      manualSearchUrl: "https://www.govinfo.gov/app/search/advanced"
+    });
+    expect(result.sourceRuns[0].message).not.toMatch(/No enabled query/);
+    expect(result.warnings.join(" ")).toMatch(/GOVINFO_API_KEY/);
+  });
+
+  it("does not transmit a query to an automated source removed from every query target", async () => {
+    const plan = buildSearchPlan({
+      mode: "quick",
+      quickQuery: "Malta Summit"
+    });
+    const result = await runFederatedSearch(plan, [govinfo], false, vi.fn(), vi.fn());
+    expect(result.sourceRuns[0]).toMatchObject({
+      sourceId: "govinfo",
+      status: "no_results",
+      resultCount: 0,
+      message: "No enabled query in the plan targets this source."
+    });
   });
 });
 

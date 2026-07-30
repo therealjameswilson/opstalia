@@ -38,7 +38,7 @@ describe("local official-source indexes", () => {
     });
   });
 
-  it("returns an honest manual CIA adapter policy rather than a scraper", () => {
+  it("keeps the native CIA repository manual and separately registers NARA-held CIA records", () => {
     const cia = sourceRegistry.find((source) => source.id === "cia");
     expect(cia).toMatchObject({
       searchCapability: "manual",
@@ -59,5 +59,14 @@ describe("local official-source indexes", () => {
         })
       ])
     );
+
+    const naraCia = sourceRegistry.find((source) => source.id === "nara-cia-rg263");
+    expect(naraCia).toMatchObject({
+      searchCapability: "automated",
+      adapterStatus: "beta",
+      officialDomains: ["catalog.archives.gov", "archives.gov"]
+    });
+    expect(naraCia?.description).toMatch(/NARA Catalog records in Record Group 263/i);
+    expect(naraCia?.knownLimitations.join(" ")).toMatch(/does not search the native CIA/i);
   });
 });

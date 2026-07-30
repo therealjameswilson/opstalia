@@ -69,4 +69,69 @@ describe("explainable scoring and versioning", () => {
     const version = record({ id: "version" });
     expect(groupVersions([left, version])).toHaveLength(1);
   });
+
+  it("deduplicates the same NARA Catalog record across generic and scoped profiles", () => {
+    const generic = record({
+      id: "nara-generic",
+      naraNaid: {
+        value: "1634221",
+        source: "NARA Catalog API",
+        extractionMethod: "source_structured",
+        confidence: 1
+      },
+      provenance: {
+        adapterId: "nara",
+        sourceId: "nara",
+        officialDomain: "catalog.archives.gov",
+        officialRecordUrl: "https://catalog.archives.gov/id/1634221",
+        retrievalTimestamp: "2026-07-29T00:00:00Z",
+        normalizationVersion: "1.0.0-nara-catalog"
+      },
+      officialUrl: {
+        value: "https://catalog.archives.gov/id/1634221",
+        source: "NARA Catalog API",
+        extractionMethod: "source_structured",
+        confidence: 1
+      }
+    });
+    const profile = {
+      ...structuredClone(generic),
+      id: "nara-cia-profile",
+      sourceRepository: {
+        value: "National Archives Catalog — Records of the Central Intelligence Agency (RG 263)",
+        source: "NARA Catalog API",
+        extractionMethod: "source_structured" as const,
+        confidence: 1
+      },
+      provenance: {
+        ...generic.provenance,
+        adapterId: "nara-cia-rg263",
+        sourceId: "nara-cia-rg263"
+      }
+    };
+
+    expect(deduplicateRecords([generic, profile])).toEqual([
+      expect.objectContaining({
+        id: "nara-cia-profile",
+        provenance: expect.objectContaining({ sourceId: "nara-cia-rg263" })
+      })
+    ]);
+
+    const unverifiedProfile = {
+      ...structuredClone(profile),
+      id: "nara-cia-unverified",
+      sourceRepository: {
+        value: "National Archives Catalog",
+        source: "NARA Catalog API",
+        extractionMethod: "source_structured" as const,
+        confidence: 1
+      }
+    };
+    expect(deduplicateRecords([unverifiedProfile, generic])).toEqual([
+      expect.objectContaining({
+        id: "nara-generic",
+        provenance: expect.objectContaining({ sourceId: "nara" })
+      })
+    ]);
+  });
 });

@@ -4,6 +4,7 @@ import { projectImportSchema } from "../core/validation";
 import { getSource } from "../data/registry";
 import {
   isApprovedOfficialUrl,
+  validateNormalizedRecordEvidence,
   validatePrimaryEvidence,
   validateResearcherRecordLocator
 } from "../security/url-policy";
@@ -22,6 +23,15 @@ interface OpstaliaDatabase extends DBSchema {
 }
 
 const DATABASE_NAME = "opstalia-v1-research";
+const NARA_API_SOURCE_IDS = new Set([
+  "nara",
+  "nara-cia-rg263",
+  "nara-state-rg59"
+]);
+const NARA_PROFILE_SOURCE_IDS = new Set([
+  "nara-cia-rg263",
+  "nara-state-rg59"
+]);
 let databasePromise: Promise<IDBPDatabase<OpstaliaDatabase>> | undefined;
 
 function db(): Promise<IDBPDatabase<OpstaliaDatabase>> {
@@ -82,7 +92,10 @@ function generatedLocator(record: NormalizedRecord): NormalizedRecord {
     provenance: {
       ...record.provenance,
       rawRecordId: undefined,
-      normalizationVersion: "1.0.0-locator-only"
+      normalizationVersion:
+        record.provenance.sourceId === "nara"
+          ? "1.0.0-locator-only"
+          : "1.0.0-nara-catalog-profile-locator-only"
     },
     retrievalTimestamp: record.retrievalTimestamp,
     confidenceScore: 0,
@@ -91,16 +104,30 @@ function generatedLocator(record: NormalizedRecord): NormalizedRecord {
   };
 }
 
+function isTransientNaraApiRecord(record: NormalizedRecord): boolean {
+  if (record.provenance.sourceId === "nara") return true;
+  if (!NARA_PROFILE_SOURCE_IDS.has(record.provenance.sourceId)) return false;
+  try {
+    return (
+      record.provenance.officialDomain.toLocaleLowerCase() === "catalog.archives.gov" &&
+      new URL(record.officialUrl.value).hostname.toLocaleLowerCase() === "catalog.archives.gov" &&
+      Boolean(record.naraNaid?.value)
+    );
+  } catch {
+    return false;
+  }
+}
+
 export function sanitizeProjectForPersistence(project: SearchProject): SearchProject {
   const naraRecordIds = new Set(
     project.records
-      .filter((record) => record.provenance.sourceId === "nara")
+      .filter(isTransientNaraApiRecord)
       .map((record) => record.id)
   );
   return {
     ...project,
-    rawRecords: project.rawRecords.filter((record) => record.sourceId !== "nara"),
-    records: project.records.map((record) => (record.provenance.sourceId === "nara" ? generatedLocator(record) : record)),
+    rawRecords: project.rawRecords.filter((record) => !NARA_API_SOURCE_IDS.has(record.sourceId)),
+    records: project.records.map((record) => (isTransientNaraApiRecord(record) ? generatedLocator(record) : record)),
     versionGroups: project.versionGroups.map((group) => {
       const containsNara = group.recordIds.some((recordId) => naraRecordIds.has(recordId));
       if (!containsNara) return group;
@@ -234,6 +261,12 @@ export function parseImportedProject(text: string): SearchProject {
     const primary = validatePrimaryEvidence(record.officialUrl.value, record.provenance, source);
     if (!primary.allowed || !source) {
       throw new Error(`Imported record ${record.id} was rejected: ${primary.reason}`);
+    }
+    const completeEvidence = validateNormalizedRecordEvidence(record, source);
+    if (!completeEvidence.allowed) {
+      throw new Error(
+        `Imported record ${record.id} was rejected: ${completeEvidence.reason}`
+      );
     }
     const effectiveOfficialUrl =
       record.officialUrl.researcherOverride?.value ?? record.officialUrl.value;

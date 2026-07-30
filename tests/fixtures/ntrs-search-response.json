@@ -1,0 +1,88 @@
+{
+  "stats": {
+    "took": 54,
+    "total": 8553,
+    "estimate": false,
+    "maxScore": 122.820694
+  },
+  "results": [
+    {
+      "id": 20180008545,
+      "title": "Recent Findings from Restored Apollo Magnetic Field Records",
+      "distribution": "PUBLIC",
+      "distributionDate": "2019-07-17T00:00:00.0000000+00:00",
+      "submittedDate": "2018-12-18T09:52:24.7470000+00:00",
+      "stiType": "ABSTRACT",
+      "stiTypeDetails": "Abstract",
+      "subjectCategories": [
+        "Lunar And Planetary Science And Exploration"
+      ],
+      "otherReportNumbers": [
+        "GSFC-E-DAA-TN59814",
+        "Report Number: GSFC-E-DAA-TN59814"
+      ],
+      "authorAffiliations": [
+        {
+          "sequence": 0,
+          "submissionId": 20180008545,
+          "meta": {
+            "author": {
+              "name": "Chi, P. J."
+            },
+            "organization": {
+              "name": "California Univ.",
+              "location": "Los Angeles, CA, United States"
+            }
+          },
+          "id": "bf88cd51027f45f6b0844cf86c0a0321"
+        },
+        {
+          "sequence": 1,
+          "submissionId": 20180008545,
+          "meta": {
+            "author": {
+              "name": "Russell, C. T."
+            },
+            "organization": {}
+          },
+          "id": "e217fd39c4d54369a95838fd6ba4dc1f"
+        },
+        {
+          "sequence": 2,
+          "submissionId": 20180008545,
+          "meta": {
+            "author": {
+              "name": "Williams, D. R."
+            },
+            "organization": {
+              "name": "NASA Goddard Space Flight Center",
+              "location": "Greenbelt, MD, United States"
+            }
+          },
+          "id": "02ef845b18144b2984ab2870ef563720"
+        }
+      ],
+      "publications": [
+        {
+          "submissionId": 20180008545,
+          "id": "25010930199847c0928e919e3e53baf3",
+          "publicationDate": "2018-12-10T00:00:00.0000000+00:00"
+        }
+      ],
+      "downloadsAvailable": true,
+      "downloads": [
+        {
+          "draft": false,
+          "mimetype": "application/pdf",
+          "name": "20180008545.pdf",
+          "type": "STI",
+          "links": {
+            "original": "/api/citations/20180008545/downloads/20180008545.pdf",
+            "pdf": "/api/citations/20180008545/downloads/20180008545.pdf",
+            "fulltext": "/api/citations/20180008545/downloads/20180008545.txt"
+          }
+        }
+      ]
+    }
+  ]
+}

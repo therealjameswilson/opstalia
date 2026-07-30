@@ -39,6 +39,10 @@ const EMPTY_TARGET: SearchTarget = {
   geographicFocus: "",
   notes: ""
 };
+const OPTIONAL_NARA_PROFILE_IDS = new Set([
+  "nara-cia-rg263",
+  "nara-state-rg59"
+]);
 
 function upsertRun(runs: SourceRun[], next: SourceRun): SourceRun[] {
   return [...runs.filter((run) => run.sourceId !== next.sourceId), next].sort((left, right) => left.sourceId.localeCompare(right.sourceId));
@@ -141,6 +145,14 @@ export function SearchPage({ project, onProjectUpdate, onCompare }: SearchPagePr
       setPrivateMode(project.privateMode);
       setWorkspaceProject(project);
       setSourceRuns(project.sourceRuns);
+      const projectSourceIds = [
+        ...new Set(
+          project.sourceRuns
+            .map((run) => run.sourceId)
+            .filter((sourceId) => sourceRegistry.some((source) => source.id === sourceId))
+        )
+      ];
+      if (projectSourceIds.length) setSelectedSources(projectSourceIds);
     }
   }, [project?.id]);
 
@@ -177,7 +189,21 @@ export function SearchPage({ project, onProjectUpdate, onCompare }: SearchPagePr
       setError("Acknowledge the unclassified-use notice before building or running a search.");
       return;
     }
-    const next = buildSearchPlan(validation.data);
+    const automatedSourceIds = sourceRegistry
+      .filter(
+        (source) =>
+          selectedSources.includes(source.id) &&
+          source.searchCapability === "automated"
+      )
+      .map((source) => source.id);
+    const generated = buildSearchPlan(validation.data);
+    const next = {
+      ...generated,
+      queries: generated.queries.map((query) => ({
+        ...query,
+        sourceIds: automatedSourceIds
+      }))
+    };
     setPlan(next);
     setMessage(`${next.queries.length} deterministic query variants generated. Review and edit them before search.`);
     if (!privateMode) shareTarget(validation.data);
@@ -186,6 +212,29 @@ export function SearchPage({ project, onProjectUpdate, onCompare }: SearchPagePr
   const updateQuery = (queryId: string, update: Partial<SearchQuery>) => {
     setPlan((current) =>
       current ? { ...current, queries: current.queries.map((query) => (query.id === queryId ? { ...query, ...update } : query)) } : current
+    );
+  };
+
+  const toggleSourceSelection = (sourceId: string, checked: boolean) => {
+    setSelectedSources((current) =>
+      checked
+        ? [...new Set([...current, sourceId])]
+        : current.filter((id) => id !== sourceId)
+    );
+    const source = sourceRegistry.find((entry) => entry.id === sourceId);
+    if (source?.searchCapability !== "automated") return;
+    setPlan((current) =>
+      current
+        ? {
+            ...current,
+            queries: current.queries.map((query) => ({
+              ...query,
+              sourceIds: checked
+                ? [...new Set([...query.sourceIds, sourceId])]
+                : query.sourceIds.filter((id) => id !== sourceId)
+            }))
+          }
+        : current
     );
   };
 
@@ -518,7 +567,13 @@ export function SearchPage({ project, onProjectUpdate, onCompare }: SearchPagePr
                               text: "",
                               kind: "broad_keyword" as QueryKind,
                               enabled: true,
-                              sourceIds: ["nara", "frus", "iscap", "ndc"],
+                              sourceIds: sourceRegistry
+                                .filter(
+                                  (source) =>
+                                    selectedSources.includes(source.id) &&
+                                    source.searchCapability === "automated"
+                                )
+                                .map((source) => source.id),
                               explanation: "Researcher-added search variant"
                             }
                           ]
@@ -580,6 +635,12 @@ export function SearchPage({ project, onProjectUpdate, onCompare }: SearchPagePr
                   sources: sourceRegistry.filter((source) => source.enabledByDefault && source.searchCapability === "automated")
                 },
                 {
+                  label: "Optional NARA Catalog discovery profiles",
+                  sources: sourceRegistry.filter((source) =>
+                    OPTIONAL_NARA_PROFILE_IDS.has(source.id)
+                  )
+                },
+                {
                   label: "Manual searches to prepare",
                   sources: sourceRegistry.filter(
                     (source) =>
@@ -604,9 +665,7 @@ export function SearchPage({ project, onProjectUpdate, onCompare }: SearchPagePr
                           type="checkbox"
                           checked={selectedSources.includes(source.id)}
                           onChange={(event) =>
-                            setSelectedSources((current) =>
-                              event.target.checked ? [...current, source.id] : current.filter((id) => id !== source.id)
-                            )
+                            toggleSourceSelection(source.id, event.target.checked)
                           }
                         />
                         <span>
@@ -625,16 +684,19 @@ export function SearchPage({ project, onProjectUpdate, onCompare }: SearchPagePr
               <details>
                 <summary>Add another registered official source</summary>
                 {sourceRegistry
-                  .filter((source) => !source.enabledByDefault && source.searchCapability !== "planned")
+                  .filter(
+                    (source) =>
+                      !source.enabledByDefault &&
+                      source.searchCapability !== "planned" &&
+                      !OPTIONAL_NARA_PROFILE_IDS.has(source.id)
+                  )
                   .map((source) => (
                   <label key={source.id}>
                     <input
                       type="checkbox"
                       checked={selectedSources.includes(source.id)}
                       onChange={(event) =>
-                        setSelectedSources((current) =>
-                          event.target.checked ? [...current, source.id] : current.filter((id) => id !== source.id)
-                        )
+                        toggleSourceSelection(source.id, event.target.checked)
                       }
                     />
                     <span><strong>{source.displayName}</strong><small>{source.searchCapability} · {source.adapterStatus.replaceAll("_", " ")}</small></span>
@@ -648,7 +710,12 @@ export function SearchPage({ project, onProjectUpdate, onCompare }: SearchPagePr
             </fieldset>
           </div>
           <div className="run-row">
-            <p>NARA is capped at the first three enabled plan queries to protect the monthly quota. Manual sources receive a prepared handoff only; nothing opens automatically.</p>
+            <p>
+              Each Worker-backed source is capped at the first three applicable plan queries.
+              The NARA Catalog profiles share the NARA API quota and search NARA holdings only;
+              they do not search the native CIA or State FOIA reading rooms. Manual sources
+              receive a prepared handoff only, and nothing opens automatically.
+            </p>
             {running ? (
               <button className="button button-danger" onClick={() => abortRef.current?.abort()}>Stop search</button>
             ) : (

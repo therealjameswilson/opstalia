@@ -59,51 +59,73 @@ service-level agreement.
 ## Deployed security design
 
 The public build uses a static React application on GitHub Pages and a
-Cloudflare Worker for the NARA Catalog adapter.
+Cloudflare Worker with six fixed adapter IDs: `nara`, `nara-cia-rg263`,
+`nara-state-rg59`, `govinfo`, `nasa-ntrs`, and `osti-sti`.
 
 ### Secrets
 
-- `NARA_API_KEY` is a Worker secret. It must never be a `VITE_` variable,
-  checked-in environment value, frontend constant, screenshot, build artifact,
-  log entry, or client response.
-- The health route reports only a Boolean readiness state.
+- `NARA_API_KEY`, `GOVINFO_API_KEY`, and `RATE_LIMIT_SALT` are Worker secrets.
+  They must never be `VITE_` variables, checked-in environment values,
+  frontend constants, screenshots, build artifacts, log entries, or client
+  responses.
+- The health route reports public service/version metadata, registered adapter
+  IDs, policy summaries, and only Boolean readiness for the NARA and GovInfo
+  source secrets. It never returns a secret value.
 - `.env.example` contains placeholders only; `.env*`, `.dev.vars`, Wrangler
   state, logs, and local files are ignored.
 - Worker errors pass through secret-redaction logic before a response is
   returned.
-- Install the key with:
+- Install only the secrets required by the enabled adapters and deployment:
 
   ```sh
-  npm run worker:secret
+  npm run worker:secret:nara
+  npm run worker:secret:govinfo
+  npm run worker:secret:rate-limit
   ```
 
-  This invokes `wrangler secret put NARA_API_KEY --config
-  worker/wrangler.toml`.
+  NARA and the two opt-in NARA record-group profiles share `NARA_API_KEY`.
+  GovInfo uses `GOVINFO_API_KEY`. NTRS and OSTI require no Opstalia source API
+  key.
 
 ### Request and network controls
 
 - The Worker accepts the production GitHub Pages origin plus the explicitly
   configured `FRONTEND_ORIGIN`; local origins are added only outside
   production.
-- NARA search requests must be JSON, are limited to 16 KiB, and undergo runtime
-  schema validation.
+- Every Worker search request must be JSON, is streamed with a 16 KiB limit,
+  and undergoes runtime schema validation.
+- Upstream responses must be JSON and valid UTF-8. Streamed response bodies are
+  capped at 12,000,000 bytes for NARA and 5,000,000 bytes each for GovInfo,
+  NTRS, and OSTI, whether or not `Content-Length` is present.
 - The Worker limits requests per ephemeral, salted IP-derived key and enforces
   a source timeout.
-- The NARA adapter uses a fixed HTTPS endpoint. Its outbound URL check rejects
+- Every adapter uses a fixed HTTPS endpoint. Outbound URL checks reject
   non-HTTPS schemes, unapproved hosts, user information, and explicit ports.
-- The frontend and Worker request NARA data with `no-store`; the Worker disables
-  Cloudflare response caching for the upstream call.
+- NARA retries one transient upstream failure once. GovInfo, NTRS, and OSTI
+  make one timeout-bounded upstream attempt.
+- The frontend and Worker use `no-store`; the Worker disables Cloudflare
+  response caching for every upstream call.
 - Source failures are isolated. A failure does not broaden the source set or
   trigger a fallback to unofficial repositories.
 
 ### Official-source admission
 
-A primary result is admitted only when all three conditions hold:
+A primary result must pass all applicable admission checks:
 
 1. the adapter is registered in [`data/sources.json`](data/sources.json);
-2. the result has matching adapter provenance; and
+2. the Worker route, source run, raw records, normalized record, and adapter
+   provenance retain the selected source ID;
 3. its official record or file URL uses HTTPS and matches that source's
-   configured official-domain allowlist.
+   configured official-domain allowlist;
+4. every returned record-page, download, thumbnail, and digital-object URL is
+   on that source's approved HTTPS domains; and
+5. source-specific file binding passes: GovInfo PDFs match the package/granule
+   IDs, NTRS downloads match the citation ID, and OSTI full text matches the
+   OSTI ID.
+
+NARA exposes a digital-object link only when it is a direct recognized public
+file on an approved `archives.gov` host. Other reported NARA storage locators
+are omitted.
 
 The public build does not treat leaks, mirrors, media caches, personal sites,
 commercial repositories, crowdsourced archives, social uploads, anonymous

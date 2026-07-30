@@ -1,10 +1,25 @@
-import { apiSearchRequestSchema } from "../../src/core/validation";
+import sourceData from "../../data/sources.json";
+import {
+  apiSearchRequestSchema,
+  sourceRegistryDataSchema,
+  sourceSearchResponseSchema
+} from "../../src/core/validation";
 import { normalizeError, redactSecrets } from "../../src/security/redaction";
-import type { NormalizedSearchQuery } from "../../src/core/types";
-import { NaraAdapter } from "./adapters/nara";
+import { validateNormalizedRecordEvidence } from "../../src/security/url-policy";
+import type {
+  NormalizedSearchQuery,
+  SourceDefinition,
+  SourceSearchResponse
+} from "../../src/core/types";
+import {
+  createWorkerAdapter,
+  isWorkerSourceId,
+  workerSourceIds,
+  type WorkerAdapterEnvironment
+} from "./adapters/registry";
+import { readBoundedUtf8Body } from "./adapters/http";
 
-export interface Environment {
-  NARA_API_KEY?: string;
+export interface Environment extends WorkerAdapterEnvironment {
   FRONTEND_ORIGIN?: string;
   RATE_LIMIT_SALT?: string;
   APP_ENV?: string;
@@ -12,7 +27,13 @@ export interface Environment {
 
 const MAX_BODY_BYTES = 16_384;
 const RATE_LIMIT_PER_MINUTE = 30;
+const MAX_RATE_LIMIT_ENTRIES = 5_000;
 const limiter = new Map<string, { minute: number; count: number }>();
+const registeredSources = new Map(
+  sourceRegistryDataSchema
+    .parse(sourceData)
+    .sources.map((source) => [source.id, source as SourceDefinition])
+);
 
 function allowedOrigins(environment: Environment): Set<string> {
   const origins = new Set(["https://therealjameswilson.github.io"]);
@@ -57,6 +78,16 @@ async function rateLimitKey(request: Request, environment: Environment): Promise
 async function checkRateLimit(request: Request, environment: Environment): Promise<boolean> {
   const key = await rateLimitKey(request, environment);
   const minute = Math.floor(Date.now() / 60_000);
+  if (limiter.size >= MAX_RATE_LIMIT_ENTRIES) {
+    for (const [storedKey, value] of limiter) {
+      if (value.minute !== minute) limiter.delete(storedKey);
+    }
+    while (limiter.size >= MAX_RATE_LIMIT_ENTRIES) {
+      const oldestKey = limiter.keys().next().value as string | undefined;
+      if (!oldestKey) break;
+      limiter.delete(oldestKey);
+    }
+  }
   const current = limiter.get(key);
   if (!current || current.minute !== minute) {
     limiter.set(key, { minute, count: 1 });
@@ -68,13 +99,23 @@ async function checkRateLimit(request: Request, environment: Environment): Promi
 
 async function readJsonBody(request: Request): Promise<unknown> {
   const declaredLength = Number(request.headers.get("Content-Length") ?? "0");
+  if (!Number.isFinite(declaredLength) || declaredLength < 0) {
+    throw new Error("Invalid Content-Length");
+  }
   if (declaredLength > MAX_BODY_BYTES) throw new Error("Request body exceeds the 16 KB limit");
   if (!(request.headers.get("Content-Type") ?? "").toLocaleLowerCase().startsWith("application/json")) {
     throw new Error("Content-Type must be application/json");
   }
-  const body = await request.text();
-  if (new TextEncoder().encode(body).byteLength > MAX_BODY_BYTES) throw new Error("Request body exceeds the 16 KB limit");
-  return JSON.parse(body);
+  const body = await readBoundedUtf8Body(
+    request.body,
+    MAX_BODY_BYTES,
+    "Request body"
+  );
+  try {
+    return JSON.parse(body);
+  } catch {
+    throw new Error("Invalid JSON request body");
+  }
 }
 
 function withTimeout(request: Request, milliseconds: number): { signal: AbortSignal; cleanup: () => void } {
@@ -102,15 +143,19 @@ const worker = {
     if (request.method === "GET" && url.pathname === "/api/health") {
       return json(request, environment, {
         ok: true,
-        ready: Boolean(environment.NARA_API_KEY),
+        ready: true,
         service: "opstalia-api",
-        version: "1.0.0",
+        version: "1.1.0",
         naraSecretConfigured: Boolean(environment.NARA_API_KEY),
-        storagePolicy: "NARA responses are not cached or stored",
+        govInfoSecretConfigured: Boolean(environment.GOVINFO_API_KEY),
+        registeredAdapters: workerSourceIds,
+        storagePolicy: "Upstream responses are not cached by the Worker; NARA API content is never persisted by Opstalia",
         loggingPolicy: "Request bodies, full query strings, authorization data, and IP addresses are not logged by application code"
       });
     }
-    if (request.method !== "POST" || url.pathname !== "/api/search/nara") {
+    const route = url.pathname.match(/^\/api\/search\/([a-z0-9-]+)$/);
+    const sourceId = route?.[1] ?? "";
+    if (request.method !== "POST" || !isWorkerSourceId(sourceId)) {
       return json(request, environment, { error: "NOT_FOUND", message: "Route not found." }, 404);
     }
     if (!(await checkRateLimit(request, environment))) {
@@ -119,9 +164,42 @@ const worker = {
     const timeout = withTimeout(request, 15_000);
     try {
       const parsed = apiSearchRequestSchema.parse(await readJsonBody(request)) as NormalizedSearchQuery;
-      const adapter = new NaraAdapter(environment);
-      const result = await adapter.search(parsed, { signal: timeout.signal, retrievedAt: new Date().toISOString() });
-      return json(request, environment, result);
+      const adapter = createWorkerAdapter(sourceId, environment);
+      const adapterResult = sourceSearchResponseSchema.parse(
+        await adapter.search(parsed, {
+          signal: timeout.signal,
+          retrievedAt: new Date().toISOString()
+        })
+      ) as SourceSearchResponse;
+      const source = registeredSources.get(sourceId);
+      if (
+        !source ||
+        adapterResult.sourceRun.sourceId !== sourceId ||
+        adapterResult.rawRecords.some((record) => record.sourceId !== sourceId)
+      ) {
+        throw new Error("Adapter source identity did not match the fixed Worker route.");
+      }
+      const records = adapterResult.records.filter((record) =>
+        validateNormalizedRecordEvidence(record, source).allowed
+      );
+      const rejectedCount = adapterResult.records.length - records.length;
+      return json(request, environment, {
+        ...adapterResult,
+        sourceRun: {
+          ...adapterResult.sourceRun,
+          resultCount: records.length,
+          message: rejectedCount
+            ? `${adapterResult.sourceRun.message ?? ""} Worker provenance enforcement rejected ${rejectedCount} result${rejectedCount === 1 ? "" : "s"}.`.trim()
+            : adapterResult.sourceRun.message
+        },
+        records,
+        warnings: rejectedCount
+          ? [
+              ...adapterResult.warnings,
+              `${rejectedCount} result${rejectedCount === 1 ? "" : "s"} failed Worker-side official-domain, file-URL, or adapter-provenance validation.`
+            ]
+          : adapterResult.warnings
+      });
     } catch (error) {
       const normalized = normalizeError(error);
       const status =

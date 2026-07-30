@@ -57,8 +57,10 @@ security objectives the public application can guarantee.
 | FRUS index | Static GitHub Pages asset | Pinned TEI-derived search index for three documented FRUS volumes | Checked-in public build artifact |
 | ISCAP index | Static GitHub Pages asset | Pinned official release-table index | Checked-in public build artifact |
 | NDC index | Static GitHub Pages asset | Pinned official release-list index | Checked-in public build artifact |
-| Cloudflare Worker | Cloudflare edge | Validate and proxy NARA Catalog searches; keep the API key server-side | None configured; an ephemeral in-memory rate-limit map |
+| Cloudflare Worker | Cloudflare edge | Dispatch fixed official-API adapters; keep NARA and GovInfo keys server-side; mediate NTRS/OSTI CORS | None configured; an ephemeral in-memory rate-limit map |
 | NARA Catalog API | NARA | Official Catalog search and metadata | Controlled by NARA |
+| GovInfo Search Service | Government Publishing Office | Official publication discovery | Controlled by GPO |
+| NASA NTRS and OSTI.GOV APIs | NASA and DOE OSTI | Official public scientific and technical information discovery | Controlled by each agency |
 | Manual official sources | Source agencies | Researcher-directed search or viewing | Controlled by each source |
 
 The Worker has no KV namespace, D1 database, R2 bucket, Durable Object, queue, or
@@ -74,8 +76,9 @@ flowchart LR
     B["Researcher's browser<br/>unclassified terms only"]
     G["GitHub Pages<br/>static app + pinned public indexes"]
     I["IndexedDB<br/>non-private local projects"]
-    W["Cloudflare Worker<br/>NARA adapter only"]
+    W["Cloudflare Worker<br/>fixed official-API adapter registry"]
     N["NARA Catalog API<br/>official source"]
+    A["GovInfo, NASA NTRS, OSTI.GOV<br/>official public APIs"]
     M["Manual official repository<br/>researcher-operated"]
 
     G -->|"HTML, JS, CSS, FRUS/ISCAP/NDC indexes"| B
@@ -83,6 +86,8 @@ flowchart LR
     B -->|"HTTPS POST: validated target + one plan query"| W
     W -->|"HTTPS GET: q, limit, supported filters, secret key"| N
     N -->|"JSON metadata and object links"| W
+    W -->|"documented source-specific requests; GovInfo key only where required"| A
+    A -->|"official publication or STI metadata and links"| W
     W -->|"normalized transient results; no-store"| B
     B -->|"user-initiated navigation; prepared terms/filters when displayed"| M
 ```
@@ -111,7 +116,8 @@ For each of at most the first three enabled NARA plan queries:
    target, one editable plan query, a result limit, an optional cursor, and the
    private-mode flag. Before transmission it explicitly removes the target's
    research-notes field.
-2. The browser POSTs JSON to `/api/search/nara` on the configured Worker with
+2. The browser POSTs JSON to `/api/search/nara`, `/api/search/nara-cia-rg263`,
+   or `/api/search/nara-state-rg59` on the configured Worker with
    `cache: "no-store"` and no credentials.
 3. The Worker:
    - rejects an unapproved `Origin`;
@@ -136,8 +142,39 @@ For each of at most the first three enabled NARA plan queries:
    search.
 7. Transient response data is normalized, scored, and checked for visible
    marking strings. The Worker returns normalized records without raw NARA
-   response objects.
+   response objects. Normalization examines at most 200 reported digital objects per
+   record, 100,000 OCR characters per object, and 500,000 OCR characters per
+   record. Direct file locators are exposed only on approved `archives.gov`
+   hosts.
 8. The response carries `Cache-Control: no-store, private, max-age=0`.
+9. The Worker and browser runtime-validate the complete response and apply the
+   selected source's official-domain, file-URL, and adapter-provenance gate
+   before any returned record enters the primary index.
+
+The optional RG 263 and RG 59 profiles additionally fix the NARA query to available-online textual records in their respective record groups. Explicit returned hierarchy is checked before an RG-specific repository label is applied; conflicts are rejected, and absent hierarchy remains generic NARA evidence. They retain NARA Catalog provenance and the same transient locator-only persistence. They do not call or represent the native CIA or State FOIA systems.
+
+## Other Worker-adapter request paths
+
+All live Worker adapters use the same CORS, JSON/body-size validation, timeout,
+rate limit, no-store response policy, error normalization, and fixed source-ID
+dispatch. The browser strips research notes before every Worker request,
+runtime-validates every response, and rejects records that fail the selected
+source's official-domain, file-URL, or adapter-provenance admission rule.
+
+- `/api/search/govinfo` sends a documented POST search payload to the fixed
+  `api.govinfo.gov` endpoint and adds `GOVINFO_API_KEY` only to that upstream
+  request.
+- `/api/search/nasa-ntrs` sends documented query parameters to the fixed public
+  NTRS citations endpoint and uses no application source key.
+- `/api/search/osti-sti` sends documented query parameters to the fixed public
+  OSTI.GOV records endpoint and uses no application source key.
+
+These adapters may return permissible public raw source records for
+browser-local project provenance. The Worker itself does not persist them.
+GovInfo is official-publication discovery; NTRS and OSTI are official
+scientific-and-technical-information discovery. None automatically proves
+declassification, FOIA release, authenticity, completeness, or release in
+full.
 
 The frontend origin is a scheme/host origin, not a GitHub Pages path. Production
 CORS therefore allows `https://therealjameswilson.github.io`; the application
@@ -261,15 +298,16 @@ with visible reasons and human-review controls.
 
 ## Secret management
 
-### Secret
+### Secrets
 
-`NARA_API_KEY` is installed only through:
+`NARA_API_KEY` and, when GovInfo is enabled, `GOVINFO_API_KEY` are installed only through:
 
 ```sh
 wrangler secret put NARA_API_KEY --config worker/wrangler.toml
+wrangler secret put GOVINFO_API_KEY --config worker/wrangler.toml
 ```
 
-It must never be:
+They must never be:
 
 - named with a `VITE_` prefix;
 - placed in `.env.example`, `.dev.vars`, or Wrangler configuration committed to
@@ -277,9 +315,12 @@ It must never be:
 - echoed by CI or deployment scripts;
 - returned by `/api/health` or an error route;
 - present in screenshots, fixtures, source maps, reports, or issue text; or
-- copied from NARA Scout or any other repository.
+- copied from another repository.
 
-The health response exposes only `naraSecretConfigured: true|false`.
+The health response exposes only `naraSecretConfigured: true|false` and
+`govInfoSecretConfigured: true|false`. `ready: true` means the fixed adapter
+registry is reachable; it does not assert that every optional source key is
+installed. NTRS and OSTI remain usable without source API secrets.
 
 ### Non-secret configuration
 
@@ -290,7 +331,7 @@ credential or identity system.
 
 ### Error handling
 
-Known API-key, authorization, Cloudflare-token, and NARA-secret patterns are
+Known API-key, authorization, Cloudflare-token, NARA-secret, and GovInfo-secret patterns are
 replaced before an error is returned. External source errors are normalized and
 truncated. Application code must not add body or header logging around these
 paths.
@@ -315,14 +356,16 @@ not call the persistence layer.
 To comply with the source registry and current [NARA Catalog API
 terms](https://www.archives.gov/research/catalog/help/api):
 
-- raw NARA records are excluded;
+- raw NARA records, including NARA RG 263/RG 59 profile records, are excluded;
 - a persisted NARA result becomes a locator containing the NAID and official
   URL plus researcher-created review data; and
 - reports/project exports must apply the same locator sanitizer before writing
   a user file.
 
 FRUS, ISCAP, and NDC records are based on checked-in public artifacts and may be
-saved with provenance.
+saved with provenance. Permissible GovInfo, NTRS, and OSTI public records may
+also be retained in browser-local projects; this does not turn their
+publication/STI status into declassification evidence.
 
 ### Private mode
 
@@ -368,12 +411,13 @@ Before release:
 1. run lint, TypeScript checks, unit/integration/security tests, and a production
    build;
 2. run the repository secret scanner and inspect the full Git history;
-3. search source, source maps, and built JavaScript for `NARA_API_KEY`,
+3. search source, source maps, and built JavaScript for `NARA_API_KEY`, `GOVINFO_API_KEY`,
    API-key-like strings, and authorization headers;
 4. verify the Worker origin allowlist in production;
-5. confirm `/api/health` reveals only readiness;
-6. confirm NARA requests and responses use `no-store`;
-7. verify NARA persistence and every export are locator-only;
+5. confirm `/api/health` reveals only public service metadata, registered
+   adapter IDs, and Boolean secret readiness;
+6. confirm Worker responses and upstream API calls use the declared no-store policy;
+7. verify NARA and NARA-profile persistence and every export are locator-only;
 8. run malicious-URL, unofficial-domain, SSRF, JSON-size, OCR-XSS, CSV-injection,
    CORS, timeout, and rate-limit tests;
 9. verify the deployed frontend uses the intended Worker URL and the Worker

@@ -56,9 +56,9 @@ interface SourceAdapter<RawRecord = unknown> {
 }
 ```
 
-`AdapterContext` supplies an abort signal and retrieval timestamp. A `SourceSearchResponse` contains the source run, raw records where storage is permitted, normalized records, and warnings.
+`AdapterContext` supplies an abort signal and retrieval timestamp. A `SourceSearchResponse` contains the source run, raw records where storage is permitted, normalized records, and warnings. The Worker and browser runtime-validate this response, retain the selected route/source identity, and recheck each normalized record through official-domain, result/file-URL, adapter-provenance, and source-specific record-ID binding rules before primary-index admission.
 
-The NARA adapter implements this interface. The three static-index adapters are isolated client functions with the same `SourceSearchResponse` boundary; they are dispatched by source ID in `src/search/client.ts`.
+Worker adapters are registered in `worker/src/adapters/registry.ts`. The route `/api/search/:sourceId` accepts only the fixed IDs `nara`, `nara-cia-rg263`, `nara-state-rg59`, `govinfo`, `nasa-ntrs`, and `osti-sti`; it is not an arbitrary URL proxy. The three static-index adapters are isolated client functions with the same `SourceSearchResponse` boundary and are dispatched by source ID in `src/search/client.ts`.
 
 ## Implemented automated adapters
 
@@ -73,15 +73,57 @@ The NARA adapter implements this interface. The three static-index adapters are 
 - **Plan cap:** first three enabled NARA-targeted query variants
 - **Timeout:** 15 seconds
 - **Retry:** one retry for 429 and selected 5xx responses
+- **Upstream response cap:** 12,000,000 streamed JSON bytes
+- **Payload bounds:** at most 200 digital objects per normalized record, 100,000 OCR characters per object, and 500,000 OCR characters across the record
 - **Caching/storage:** none
 
 Supported target filters in the current adapter include exact NAID, dates, exact-title variant, creator, geography, and material type. The registry documents additional Catalog filters that remain candidates for later adapter expansion.
 
-The adapter normalizes title, dates, creators, level, subjects, collection ancestry, digital objects, OCR presence, NAID, identifiers, snippets, and cautious release status where present. It never assumes that digitization equals declassification.
+The adapter normalizes title, dates, creators, level, subjects, collection ancestry, digital objects, OCR presence, NAID, identifiers, snippets, and cautious release status where present. It exposes a digital-object link only for a recognized direct public file on an approved `archives.gov` host; other reported storage locators are omitted. It never assumes that digitization equals declassification. Payload caps and file-path rules can omit additional objects, locators, or OCR, so normalized content is not a completeness guarantee.
 
 Required attribution:
 
 > This product uses the National Archives Catalog API but is not endorsed or certified by the National Archives and Records Administration.
+
+#### NARA record-group discovery profiles
+
+The same adapter has two separate beta profiles:
+
+- `nara-cia-rg263` fixes `recordGroupNumber=263`, `availableOnline=true`, and `typeOfMaterials=Textual Records`.
+- `nara-state-rg59` fixes `recordGroupNumber=59`, `availableOnline=true`, and `typeOfMaterials=Textual Records`.
+
+Both profiles are explicit opt-ins. They require `NARA_API_KEY`, use NARA Catalog provenance and URLs, and follow the same transient locator-only persistence policy as the general NARA adapter. An explicit matching record-group value in the returned hierarchy permits the scoped repository label; an explicit conflict rejects the hit; and a hit with no exposed group number remains labeled generic National Archives Catalog evidence with a review warning. The profiles do not search the native CIA FOIA Electronic Reading Room or Department of State FOIA Virtual Reading Room. RG 59 also omits separate Foreign Service Post holdings in RG 84. These profiles must remain separate source IDs from native `cia` and `state-foia`.
+
+### GovInfo
+
+- **Status:** Beta
+- **Execution:** live, through the Cloudflare Worker
+- **Endpoint:** documented GovInfo Search Service
+- **Authentication:** server-side `GOVINFO_API_KEY`
+- **Upstream response cap:** 5,000,000 streamed JSON bytes
+- **Caching:** no Worker response cache
+
+The adapter returns official package or granule metadata and a public GovInfo PDF only when its path binds to that package/granule ID. It is an official-publication discovery adapter. A result does not automatically establish that an originating agency declassified the underlying record, released it under FOIA, or released it in full.
+
+### NASA Technical Reports Server
+
+- **Status:** Beta
+- **Execution:** live, through the Cloudflare Worker
+- **Endpoint:** documented NTRS citations API
+- **Authentication:** none
+- **Upstream response cap:** 5,000,000 streamed JSON bytes
+
+The adapter returns official public NASA scientific-and-technical-information metadata and only NTRS download paths bound to the official citation ID. It is separate from the planned NASA FOIA registry entry and decentralized NASA FOIA e-libraries. Public NTRS availability is not a declassification or full-release determination.
+
+### OSTI.GOV scientific and technical information
+
+- **Status:** Beta
+- **Execution:** live, through the Cloudflare Worker
+- **Endpoint:** documented OSTI.GOV API v1
+- **Authentication:** none
+- **Upstream response cap:** 5,000,000 streamed JSON bytes
+
+The adapter returns official public DOE-funded scientific-and-technical-information metadata and only the full-text path bound to the official OSTI record ID. It is a separate source from manual DOE OpenNet. Opstalia does not call OpenNet's robots-disallowed search or document paths, and an OSTI result is not evidence that an OpenNet record was found or that a document was declassified or released in full.
 
 ### Office of the Historian / FRUS
 
@@ -109,10 +151,10 @@ The adapter returns title, document date, agency, archival location, appeal numb
 
 - **Status:** Beta
 - **Execution:** client-side, same-origin static index
-- **Coverage:** exactly 121 rows
+- **Coverage:** exactly 133 entries
 - **Build source:** official FY2026 Q3 NDC XLSX
 
-The adapter returns the official row fields, release quarter, workbook URL, page URL, and a cautious `finding_aid_only` or `described_but_not_digitized` status. These are generally series-level descriptions; completion of declassification processing does not prove online availability or the absence of other access review.
+The schema-version-2 builder locates the canonical workbook header row, retains the first data entry, and returns the official row fields, release quarter, workbook URL, page URL, and a cautious `finding_aid_only` or `described_but_not_digitized` status. These are generally series-level descriptions; completion of declassification processing does not prove online availability or the absence of other access review.
 
 ## Manual adapters
 
@@ -145,7 +187,7 @@ CIA remains `temporarily_unavailable`. During 2026-07-29 validation, the officia
 
 A researcher can record an official record or file URL found after a manual
 handoff only after confirming that the material is unclassified and publicly
-released. An approved domain is necessary but not sufficient. Version 1.0.1
+released. An approved domain is necessary but not sufficient. Version 1.1.0
 accepts CIA Reading Room `/readingroom/document/…` pages or direct Reading Room
 files, State FOIA `/DOCUMENTS/…` PDFs, FBI Vault `/at_download/file` locators,
 and direct public record files for other manual adapters. Home, search, status,
@@ -155,7 +197,7 @@ adapter-normalized results.
 
 Exports and reports distinguish automated source searches, manual handoffs, and unavailable sources. A generated or opened handoff does not count as an automated search or a result found.
 
-State FOIA and the other manual sources are not represented as automated. See `SOURCE_COVERAGE.md` for the complete list.
+Native State FOIA and CIA remain manual/unavailable and are not represented as automated. Separate NARA RG 59/RG 263 profiles do not change those native-source statuses. See `SOURCE_COVERAGE.md` for the complete list.
 
 ## Search orchestration
 
@@ -181,7 +223,7 @@ This is a discovery heuristic, not an assertion that the result is the sought do
 4. exact or subdomain match against the source’s official domains; and
 5. an official provenance URL.
 
-Local adapters filter every result through this policy. The NARA Worker separately constructs its upstream URL from a fixed constant and rejects other hosts, credentials, ports, or protocols.
+Local adapters filter every result through this policy. Each Worker adapter separately constructs its upstream URL from a fixed constant, and the Worker route accepts only registered adapter IDs. Redirect, credential, host, port, protocol, and result-URL checks remain source-specific.
 
 Do not add a broad domain merely to make a result pass. Add only domains controlled by or officially authenticated for the registered source.
 

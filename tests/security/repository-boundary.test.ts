@@ -2,6 +2,7 @@ import { readFileSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { projectImportSchema, sanitizePlainText } from "../../src/core/validation";
+import { redactSecrets } from "../../src/security/redaction";
 
 function files(directory: string): string[] {
   return readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
@@ -30,5 +31,19 @@ describe("repository security posture", () => {
     expect(html).toContain("object-src 'none'");
     expect(html).toContain("frame-ancestors 'none'");
     expect(html).not.toMatch(/fonts\.(googleapis|gstatic)\.com/);
+  });
+
+  it("redacts every configured Worker secret and GovInfo query-key form", () => {
+    const redacted = redactSecrets(
+      "NARA_API_KEY=nara-secret GOVINFO_API_KEY=gov-secret " +
+        "CLOUDFLARE_API_TOKEN=cloudflare-secret RATE_LIMIT_SALT=rate-secret " +
+        "https://api.govinfo.gov/search?api_key=url-secret&format=json"
+    );
+    expect(redacted).not.toContain("nara-secret");
+    expect(redacted).not.toContain("gov-secret");
+    expect(redacted).not.toContain("cloudflare-secret");
+    expect(redacted).not.toContain("rate-secret");
+    expect(redacted).not.toContain("url-secret");
+    expect(redacted).toContain("api_key=[REDACTED]");
   });
 });

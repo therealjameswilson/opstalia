@@ -44,12 +44,12 @@ export function SecurityPage() {
       </div>
       <section className="data-flow" aria-labelledby="flow-title">
         <h2 id="flow-title">Exactly what leaves the browser</h2>
-        <div className="flow-diagram" role="img" aria-label="Browser sends selected unclassified search query to Opstalia Worker, which sends only needed parameters to the NARA API. Local indexes are searched inside the browser. Manual sources open their official website.">
+        <div className="flow-diagram" role="img" aria-label="Browser sends a selected unclassified live-source query to the Opstalia Worker, which sends only needed parameters to the selected official NARA, GovInfo, NASA NTRS, or OSTI API. Local indexes are searched inside the browser. Manual sources open their official website only when the researcher chooses.">
           <div><strong>Your browser</strong><span>Unclassified search terms; local projects in IndexedDB</span></div>
           <span aria-hidden="true">→</span>
-          <div><strong>Opstalia Worker</strong><span>NARA queries only; no body logging or source-response cache</span></div>
+          <div><strong>Opstalia Worker</strong><span>Selected official-API query; no body logging or source-response cache</span></div>
           <span aria-hidden="true">→</span>
-          <div><strong>NARA API</strong><span>Selected query and supported filters</span></div>
+          <div><strong>Selected official API</strong><span>NARA · GovInfo · NASA NTRS · OSTI</span></div>
         </div>
         <div className="flow-diagram local-flow" role="img" aria-label="FRUS, ISCAP, and NDC indexes remain local in the browser.">
           <div><strong>Your browser</strong><span>FRUS · ISCAP · NDC local indexes</span></div>
@@ -61,7 +61,7 @@ export function SecurityPage() {
         <h2>Private search mode</h2>
         <p>Private mode disables Opstalia project persistence, browser search history, and reusable response state. Closing or reloading the tab clears the in-memory project. Queries still must be transmitted to the selected live official repository through the Worker. Private mode is not anonymity.</p>
         <h2>Secrets</h2>
-        <p>The NARA key exists only as the Worker secret <code>NARA_API_KEY</code>. Frontend variables beginning with <code>VITE_</code> are public and must never contain secrets.</p>
+        <p>The NARA and GovInfo keys exist only as Worker secrets named <code>NARA_API_KEY</code> and <code>GOVINFO_API_KEY</code>. NASA NTRS and OSTI do not require application secrets. Frontend variables beginning with <code>VITE_</code> are public and must never contain secrets.</p>
         <h2>Future Opstalia-c relationship</h2>
         <p>No synchronization, bridge, connector, export automation, or network route to Opstalia-c exists in 1.0. A future closed-network integration would be a separate security-reviewed system. Classification cannot be removed by OCR, transcription, paraphrase, summarization, or metadata extraction.</p>
       </div>
@@ -77,11 +77,11 @@ export function PrivacyPage() {
       </SectionHeading>
       <div className="prose">
         <h2>Local data</h2>
-        <p>Non-private search projects, saved locators, annotations, comparisons, and reports are stored in the browser's namespaced IndexedDB. GitHub Pages project sites share an origin; do not store secrets or restricted information in Opstalia.</p>
+        <p>Non-private search projects, saved locators, public non-NARA source responses, annotations, comparisons, and reports are stored in the browser's namespaced IndexedDB. GitHub Pages project sites share an origin; do not store secrets or restricted information in Opstalia.</p>
         <h2>NARA data-minimization rule</h2>
         <p>Current NARA API terms prohibit caching or storing API-returned content. Opstalia therefore keeps NARA responses in memory only. A saved NARA item is reduced to a generated NAID/official-URL locator plus researcher-created review data and is rehydrated only by a later live search.</p>
         <h2>Network data</h2>
-        <p>The GitHub Pages host receives ordinary web requests for application files. Cloudflare receives a POST containing the selected unclassified NARA query. The NARA API receives only the query parameters it needs. Manual adapters open the selected official source, which then receives normal browser request information.</p>
+        <p>The GitHub Pages host receives ordinary web requests for application files. Cloudflare receives a POST containing each selected unclassified live-source query. The Worker sends only the needed query and filters to the selected official NARA, GovInfo, NASA NTRS, or OSTI API. Manual adapters contact an official source only after the researcher opens the prepared handoff; that source then receives normal browser request information.</p>
         <h2>Logging</h2>
         <p>Application code does not log full queries, request bodies, API keys, authorization headers, or IP addresses. Cloudflare and GitHub may maintain infrastructure logs under their own policies.</p>
       </div>

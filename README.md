@@ -54,31 +54,36 @@ Absence of a result does not establish that a document has never been released. 
 
 The search acknowledgement is an operational boundary, not a classification review. Classification is not removed by transcription, paraphrase, OCR, summarization, or metadata extraction, and Opstalia never claims that AI can determine classification.
 
-The public build contains no source-document upload control. Its only live search API route accepts a validated, size-limited search request for NARA; the separate health route reports configuration status without revealing a secret. The NARA key remains a Cloudflare Worker secret named `NARA_API_KEY`; it is never a frontend variable.
+The public build contains no source-document upload control. Its Worker search routes accept only validated, size-limited search requests for registered fixed-upstream adapters; the separate health route reports public service metadata, registered adapter IDs, and Boolean secret readiness without revealing a secret. NARA and GovInfo credentials remain Cloudflare Worker secrets named `NARA_API_KEY` and `GOVINFO_API_KEY`; they are never frontend variables. NTRS and OSTI use documented public APIs and require no application secret.
 
 Read [SECURITY.md](SECURITY.md), [PRIVACY.md](PRIVACY.md), [the security model](docs/SECURITY_MODEL.md), and [the threat model](docs/THREAT_MODEL.md) before deployment.
 
 ## Supported sources
 
-The registry snapshot was validated on **2026-07-29** and contains 30 official-source entries:
+Registry revision **1.1.0** was validated on **2026-07-29** and contains 34 official-source entries:
 
-| Status | Count | 1.0 behavior |
+| Status | Count | Current behavior |
 |---|---:|---|
 | Integrated | 2 | National Archives Catalog; Office of the Historian / FRUS |
-| Beta | 2 | ISCAP releases; National Declassification Center release lists |
+| Beta | 7 | ISCAP; NDC; two NARA record-group profiles; GovInfo; NASA NTRS; OSTI.GOV |
 | Temporarily unavailable | 1 | CIA FOIA Electronic Reading Room; prepared terms, official status/publications links, and a retry link are provided |
 | Manual search | 20 | Official agency handoffs or reading-room links; no normalized results are claimed |
-| Planned | 5 | Registry and official link only |
+| Planned | 4 | Registry and official link only |
 | Retired | 0 | None |
 
 The automated implementations are deliberately different:
 
 - **National Archives Catalog:** live Catalog API v2 search through a Cloudflare Worker. A working deployment requires `NARA_API_KEY`.
+- **CIA records held by NARA — RG 263:** an optional NARA Catalog profile fixed to available-online textual records in Record Group 263. It requires `NARA_API_KEY` and does **not** search the native CIA FOIA Electronic Reading Room.
+- **Department of State records held by NARA — RG 59:** an optional NARA Catalog profile fixed to available-online textual records in Record Group 59. It requires `NARA_API_KEY` and does **not** search the native State FOIA Virtual Reading Room or RG 84 Foreign Service Post records.
+- **GovInfo:** a beta Worker adapter for the documented Search Service. It requires a separate server-side `GOVINFO_API_KEY`. A GovInfo publication is official publication evidence, not automatically declassification or full-release evidence.
+- **NASA Technical Reports Server:** a beta Worker adapter for official public scientific and technical information. NTRS is not a unified NASA FOIA reading room, and a public result is not proof of declassification or release in full.
+- **OSTI.GOV:** a beta Worker adapter for official public DOE-funded scientific and technical information. It is separate from DOE OpenNet and is not proof of declassification or release in full.
 - **FRUS:** browser-local search of exactly **752 documents in three volumes** (`frus1981-88v03`, `frus1981-88v05`, and `frus1981-88v06`) built from a pinned official Office of the Historian TEI project snapshot.
 - **ISCAP:** browser-local search of exactly **529 release-table objects** built from the official NARA ISCAP releases page.
-- **NDC:** browser-local search of exactly **121 rows** from the official FY2026 Q3 release-list workbook. These are generally series-level finding-aid or availability descriptions, not item-level digital records.
+- **NDC:** browser-local search of exactly **133 entries** from the official FY2026 Q3 release-list workbook. These are generally series-level finding-aid or availability descriptions, not item-level digital records.
 
-CIA and Department of State FOIA are **not** automated integrations in 1.0. For State FOIA, Opstalia creates a user-initiated, prefilled handoff to the official released-document search using applicable terms, dates, sender, recipient, case number, and document type. Opstalia does not fetch or scrape the State results. The CIA Reading Room was upstream-unavailable at validation, so Opstalia instead prepares copyable terms and offers working official CIA status/publications links plus a Reading Room retry link; it does not claim to have searched CIA. See [SOURCE_COVERAGE.md](docs/SOURCE_COVERAGE.md) for the complete registry and its limitations.
+The native CIA and Department of State FOIA repositories are **not** automated integrations. For State FOIA, Opstalia creates a user-initiated, prefilled handoff to the official released-document search using applicable terms, dates, sender, recipient, case number, and document type. Opstalia does not fetch or scrape State results. The CIA Reading Room was upstream-unavailable at validation, so Opstalia prepares copyable terms and offers official CIA status/publications links plus a Reading Room retry link; it does not claim to have searched CIA. Results from the separate NARA RG 263 and RG 59 profiles must not be described as results from those native reading rooms. See [SOURCE_COVERAGE.md](docs/SOURCE_COVERAGE.md) for the complete registry and its limitations.
 
 When a researcher finds a record through a manual handoff, Opstalia can record its official URL only after the researcher confirms that the material is unclassified and publicly released. The locator must use HTTPS on an approved official domain and match that adapter's direct record-page or record-file path rules before it can be treated as primary release evidence. A generic search-results, status, home, publications, collection, or other navigation page remains a research lead even when it is on an approved domain; Opstalia does not admit it as primary evidence. Reports label automated searches, manual handoffs, and unavailable sources separately.
 
@@ -90,12 +95,14 @@ Opstalia searches its current registry of supported official repositories.
 
 NARA API content is transient: Opstalia does not cache or store NARA API responses. Saving or exporting a project reduces a NARA result to a generated NAID/official-URL locator and researcher-created review data, not the API response, source metadata, API-derived scoring explanation, or automatic NARA-derived version evidence.
 
+To bound untrusted upstream payloads, NARA normalization examines at most 200 reported digital objects per record, 100,000 OCR characters per object, and 500,000 OCR characters across the record. A direct object link is exposed only when it is a file on an approved `archives.gov` host; other reported storage locators are omitted pending an exact host-and-path provenance policy. These are safety limits, not completeness claims.
+
 ## Architecture
 
 Opstalia uses a two-part architecture:
 
 1. A React 19, TypeScript, and Vite single-page application is built for the `/opstalia/` base path and hosted on GitHub Pages.
-2. A TypeScript Cloudflare Worker holds `NARA_API_KEY`, validates requests, enforces a fixed NARA upstream, applies CORS and rate limits, and returns normalized transient results.
+2. A TypeScript Cloudflare Worker dispatches only registered fixed-upstream adapters, holds `NARA_API_KEY` and `GOVINFO_API_KEY` when configured, applies validation, streamed request/response limits, CORS, timeouts, rate limits, and no-store responses, and returns normalized results. The Worker and browser runtime-validate each response and apply official-domain, result/file-URL, source-identity, adapter-provenance, and source-specific record-ID binding checks before a record can enter the primary results index. NTRS and OSTI remain usable without source API secrets.
 
 FRUS, ISCAP, and NDC are checked-in, same-origin static indexes searched inside the browser. Projects, comparisons, annotations, reports, and preferences are stored in IndexedDB unless private mode is active. No user account or public multi-user database is required.
 
@@ -115,7 +122,8 @@ Prerequisites:
 - Node.js 22.13 or later;
 - npm;
 - a Cloudflare account and Wrangler login only if running the live Worker; and
-- a NARA Catalog API key only if testing live NARA search.
+- a NARA Catalog API key only if testing live NARA or NARA-profile search; and
+- a GovInfo API key only if testing live GovInfo search.
 
 Install and start the frontend:
 
@@ -132,6 +140,7 @@ To test the local Worker, create an ignored `worker/.dev.vars` file:
 
 ```dotenv
 NARA_API_KEY=replace-with-your-local-development-key
+GOVINFO_API_KEY=replace-with-your-local-development-key
 RATE_LIMIT_SALT=replace-with-a-random-local-value
 FRONTEND_ORIGIN=http://localhost:5173
 APP_ENV=development
@@ -157,12 +166,18 @@ Never commit `.dev.vars`, `.env.local`, an API key, or any other secret.
 
 ## API secrets
 
-`VITE_` variables are compiled into public browser JavaScript. **Never put `NARA_API_KEY` in a `VITE_` variable.**
+`VITE_` variables are compiled into public browser JavaScript. **Never put `NARA_API_KEY`, `GOVINFO_API_KEY`, or another credential in a `VITE_` variable.**
 
 Install the production NARA key directly into Cloudflare’s secret store:
 
 ```bash
 npx wrangler secret put NARA_API_KEY --config worker/wrangler.toml
+```
+
+Install the production GovInfo key only if GovInfo search should be enabled:
+
+```bash
+npx wrangler secret put GOVINFO_API_KEY --config worker/wrangler.toml
 ```
 
 Wrangler prompts for the value without requiring it in source or a command-line argument. A production rate-limit salt should also be installed as a secret:
@@ -171,7 +186,7 @@ Wrangler prompts for the value without requiring it in source or a command-line 
 npx wrangler secret put RATE_LIMIT_SALT --config worker/wrangler.toml
 ```
 
-The health endpoint reports only whether the NARA secret is configured; it never returns the value.
+The health endpoint reports only Boolean readiness for NARA and GovInfo secrets; it never returns either value. The Worker itself remains useful without either source key because the public NTRS and OSTI adapters require no application secret.
 
 ## Deployment
 
@@ -181,7 +196,7 @@ The frontend deployment target is:
 
 The Worker URL is created by Cloudflare and must be verified from Wrangler’s deployment output. This repository does not invent or publish an unverified backend URL. After deployment, place the verified URL in the GitHub Actions repository variable `VITE_API_BASE`.
 
-The safe order is:
+The safe order is below. Omit a source-key command only when that keyed adapter is intentionally disabled; the Worker itself and the NTRS/OSTI adapters do not require either source key.
 
 ```bash
 npm ci
@@ -189,6 +204,7 @@ npm run check
 npm run secret:scan
 npm run worker:deploy
 npx wrangler secret put NARA_API_KEY --config worker/wrangler.toml
+npx wrangler secret put GOVINFO_API_KEY --config worker/wrangler.toml
 npx wrangler secret put RATE_LIMIT_SALT --config worker/wrangler.toml
 ```
 
@@ -201,7 +217,7 @@ gh variable set VITE_API_BASE \
 git push origin main
 ```
 
-The frontend still builds when `VITE_API_BASE` is absent. In that state, NARA is shown as unavailable with a manual Catalog link; FRUS, ISCAP, and NDC continue to work. Backend deployment is therefore not a precondition for a successful static frontend build.
+The frontend still builds when `VITE_API_BASE` is absent. In that state all Worker-backed sources are unavailable, while FRUS, ISCAP, NDC, and manual workflows continue to work. With a Worker URL but no source keys, the opt-in NTRS and OSTI adapters remain usable; NARA reports its missing-key state, while either NARA record-group profile and GovInfo report their respective missing-key state when the researcher selects them. Backend deployment is therefore not a precondition for a successful static frontend build.
 
 Full Cloudflare, GitHub Pages, Actions-variable, readiness, and verification instructions are in [DEPLOYMENT.md](docs/DEPLOYMENT.md).
 
@@ -257,9 +273,12 @@ These commands access official public sources and may change generated data. Rev
 ## Known limitations
 
 - Live NARA search is unavailable until a Worker URL and `NARA_API_KEY` are configured.
+- GovInfo search is unavailable until a Worker URL and `GOVINFO_API_KEY` are configured.
+- NARA RG 263/RG 59 profiles search NARA-held records only; they do not automate native CIA or State FOIA systems.
+- NTRS and OSTI are official scientific/publication discovery sources, not declassification or full-release determinations.
 - FRUS coverage is 752 documents in three volumes, not the complete FRUS series.
 - ISCAP and NDC searches use build-time snapshots, not live runtime queries.
-- NDC rows are generally finding-aid or series-level descriptions and may report that records are not online.
+- The 133 NDC entries are generally finding-aid or series-level descriptions and may report that records are not online.
 - State FOIA is a user-initiated, prefilled official-search handoff, not an automated adapter; CIA Reading Room search is temporarily unavailable upstream.
 - Official search indexes and OCR may be incomplete.
 - Textual redaction-marking detection is deterministic and probabilistic; it requires human review.
@@ -298,8 +317,8 @@ The screenshots below show the production frontend build with the Worker intenti
 Priorities after 1.0 include:
 
 - expand the reproducibly pinned FRUS coverage;
-- revalidate and, if a stable official interface permits, automate CIA and State FOIA search;
-- add other documented official APIs, beginning with GovInfo where release evidence is properly qualified;
+- revalidate and, if a stable official interface permits, automate native CIA and State FOIA search without conflating them with NARA-held records;
+- expand documented official APIs only where the corpus and evidentiary meaning can be labeled precisely;
 - strengthen page-image redaction overlays and manual correction;
 - improve attachment, missing-page, and marginal-marking comparison;
 - add an optional, stable PDF-report path; and

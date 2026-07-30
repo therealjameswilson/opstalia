@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       deployment_confirmation:
-        description: Type DEPLOY_OPSTALIA_BACKEND after installing NARA_API_KEY in Cloudflare
+        description: Type DEPLOY_OPSTALIA_BACKEND after reviewing Worker adapter and secret readiness
         required: true
         type: string
 
@@ -44,7 +44,7 @@ jobs:
             exit 1
           fi
           echo "Cloudflare deployment credentials are configured."
-          echo "This workflow does not read, print, or replace the NARA_API_KEY Worker secret."
+          echo "This workflow does not read, print, or replace NARA_API_KEY, GOVINFO_API_KEY, or RATE_LIMIT_SALT."
 
       - name: Install locked dependencies
         run: npm ci

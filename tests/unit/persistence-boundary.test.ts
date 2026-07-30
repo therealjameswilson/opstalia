@@ -96,6 +96,67 @@ describe("NARA persistence boundary", () => {
     expect(JSON.stringify(saved)).not.toContain("91%");
   });
 
+  it.each([
+    {
+      profileId: "nara-cia-rg263",
+      nativeSourceId: "cia",
+      nativeUrl: "https://www.cia.gov/readingroom/document/cia-rdp90-00965r000100120004-5"
+    },
+    {
+      profileId: "nara-state-rg59",
+      nativeSourceId: "state-foia",
+      nativeUrl:
+        "https://foia.state.gov/DOCUMENTS/1-FY2012/F-2011-01588/DOC_0C17684682/C17684682.pdf"
+    }
+  ])("sanitizes transient $profileId metadata without stripping a separate native researcher locator", ({ profileId, nativeSourceId, nativeUrl }) => {
+    const project = makeNaraProject();
+    const profileRecord = project.records[0];
+    profileRecord.id = `${profileId}-profile`;
+    profileRecord.sourceRepository.value = `NARA profile source for ${profileId}`;
+    profileRecord.provenance = {
+      ...profileRecord.provenance,
+      adapterId: profileId,
+      sourceId: profileId,
+      officialDomain: "catalog.archives.gov",
+      normalizationVersion: "1.0.0-nara-catalog-profile"
+    };
+    project.rawRecords = [
+      {
+        id: `${profileId}-raw`,
+        sourceId: profileId,
+        retrievalTimestamp: "2026-07-29T00:00:00Z",
+        payload: { title: "Transient profile metadata" }
+      }
+    ];
+    const source = sourceRegistry.find((entry) => entry.id === nativeSourceId)!;
+    const nativeRecord = createManualOfficialRecord(
+      source,
+      { mode: "quick", quickQuery: "Malta" },
+      {
+        title: "Researcher-recorded native locator",
+        officialUrl: nativeUrl
+      }
+    );
+    project.records.push(nativeRecord);
+
+    const saved = sanitizeProjectForPersistence(project);
+    expect(saved.rawRecords).toEqual([]);
+    expect(saved.records.find((record) => record.id === profileRecord.id)).toMatchObject({
+      title: { value: "NARA Catalog record 1634221" },
+      confidenceScore: 0,
+      provenance: {
+        adapterId: profileId,
+        sourceId: profileId,
+        normalizationVersion: "1.0.0-nara-catalog-profile-locator-only"
+      }
+    });
+    expect(saved.records.find((record) => record.id === nativeRecord.id)).toMatchObject({
+      title: { value: "Researcher-recorded native locator" },
+      officialUrl: { value: nativeUrl }
+    });
+    expect(JSON.stringify(saved)).not.toContain("Transient profile metadata");
+  });
+
   it("deep-validates imports and rejects URLs outside the registered source allowlist", () => {
     const valid = makeNaraProject();
     valid.fixture = true;
@@ -117,7 +178,9 @@ describe("NARA persistence boundary", () => {
     malicious.records[0].digitalObjects = [
       { id: "malicious", url: "https://catalog.archives.gov.evil.example/payload.pdf" }
     ];
-    expect(() => parseImportedProject(JSON.stringify(malicious))).toThrow(/official-domain allowlist/);
+    expect(() => parseImportedProject(JSON.stringify(malicious))).toThrow(
+      /source registry allowlist/
+    );
 
     const forgedProvenance = structuredClone(valid);
     forgedProvenance.records[0].provenance.officialDomain = "evil.example";

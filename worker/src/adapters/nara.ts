@@ -15,15 +15,66 @@ import { detectReleaseMarkings } from "../../../src/analysis/redactions";
 import { assertSafeOutboundUrl } from "../../../src/security/url-policy";
 import exemptionData from "../../../data/exemption-codes.json";
 import type { AdapterContext, SourceAdapter } from "./types";
+import { readBoundedJsonResponse } from "./http";
 
 const NARA_SEARCH_ENDPOINT = "https://catalog.archives.gov/api/v2/records/search";
 const NARA_ALLOWED_HOSTS = ["catalog.archives.gov"];
+const MAX_DIGITAL_OBJECTS_PER_RECORD = 200;
+const MAX_OCR_CHARS_PER_OBJECT = 100_000;
+const MAX_OCR_CHARS_PER_RECORD = 500_000;
+const MAX_NARA_RESPONSE_BYTES = 12_000_000;
+const PUBLIC_NARA_FILE = /\.(?:pdf|txt|tif|tiff|jpg|jpeg|png|jp2)$/i;
 const ATTRIBUTION =
   "This product uses the National Archives Catalog API but is not endorsed or certified by the National Archives and Records Administration.";
 
 export interface NaraAdapterEnvironment {
   NARA_API_KEY?: string;
 }
+
+export type NaraDiscoveryProfileId =
+  | "nara"
+  | "nara-cia-rg263"
+  | "nara-state-rg59";
+
+export interface NaraDiscoveryProfile {
+  id: NaraDiscoveryProfileId;
+  name: string;
+  sourceRepository: string;
+  manualSearchUrl: string;
+  recordGroupNumber?: string;
+  nativeRepositoryName?: string;
+  availableOnlineOnly?: boolean;
+  typeOfMaterials?: string;
+}
+
+export const NARA_DISCOVERY_PROFILES: Record<NaraDiscoveryProfileId, NaraDiscoveryProfile> = {
+  nara: {
+    id: "nara",
+    name: "National Archives Catalog",
+    sourceRepository: "National Archives Catalog",
+    manualSearchUrl: "https://catalog.archives.gov/"
+  },
+  "nara-cia-rg263": {
+    id: "nara-cia-rg263",
+    name: "CIA records discovery via NARA Catalog Record Group 263",
+    sourceRepository: "National Archives Catalog — Records of the Central Intelligence Agency (RG 263)",
+    manualSearchUrl: "https://catalog.archives.gov/",
+    recordGroupNumber: "263",
+    nativeRepositoryName: "CIA FOIA Electronic Reading Room",
+    availableOnlineOnly: true,
+    typeOfMaterials: "Textual Records"
+  },
+  "nara-state-rg59": {
+    id: "nara-state-rg59",
+    name: "Department of State records discovery via NARA Catalog Record Group 59",
+    sourceRepository: "National Archives Catalog — General Records of the Department of State (RG 59)",
+    manualSearchUrl: "https://catalog.archives.gov/",
+    recordGroupNumber: "59",
+    nativeRepositoryName: "Department of State FOIA Virtual Reading Room",
+    availableOnlineOnly: true,
+    typeOfMaterials: "Textual Records"
+  }
+};
 
 function sourced<T>(value: T, source: string, confidence = 0.95): SourcedValue<T> {
   return { value, source, extractionMethod: "source_structured", confidence };
@@ -92,35 +143,115 @@ function officialArchivesUrl(value: unknown): string | undefined {
     : undefined;
 }
 
-function digitalObjects(record: Record<string, any>): DigitalObject[] {
+function officialArchivesFileUrl(value: unknown): string | undefined {
+  const url = officialArchivesUrl(value);
+  if (!url) return undefined;
+  return PUBLIC_NARA_FILE.test(new URL(url).pathname) ? url : undefined;
+}
+
+interface NaraDigitalObjectData {
+  objects: DigitalObject[];
+  ocrTexts: string[];
+  reportedCount: number;
+}
+
+function digitalObjectData(record: Record<string, any>): NaraDigitalObjectData {
   const candidates = [
     ...(Array.isArray(record.digitalObjects) ? record.digitalObjects : []),
     ...(Array.isArray(record.digitalObject) ? record.digitalObject : []),
     ...(Array.isArray(record.objects) ? record.objects : [])
   ];
   const normalized: DigitalObject[] = [];
-  candidates.forEach((object: Record<string, any>, index: number) => {
-    const url = officialArchivesUrl(object.objectUrl ?? object.url ?? object.downloadUrl ?? object.fileUrl);
-    if (!url) return;
-    normalized.push({
-      id: makeId("nara-object", `${url}|${index}`),
-      url,
-      downloadUrl: officialArchivesUrl(object.downloadUrl ?? object.objectUrl),
-      thumbnailUrl: officialArchivesUrl(object.thumbnailUrl ?? object.thumbnail),
-      mediaType: stringValue(object.objectType ?? object.mimeType ?? object.mediaType ?? object.type) || undefined,
-      pageNumber: Number(object.pageNumber ?? object.page) || undefined,
-      ocrText: stringValue(object.ocrText ?? object.extractedText) || undefined,
-      sizeBytes: Number(object.objectFileSize ?? object.size ?? object.sizeBytes) || undefined
+  const ocrTexts: string[] = [];
+  let remainingOcrCharacters = MAX_OCR_CHARS_PER_RECORD;
+  candidates
+    .slice(0, MAX_DIGITAL_OBJECTS_PER_RECORD)
+    .forEach((object: Record<string, any>, index: number) => {
+      const reportedOcr = stringValue(object.ocrText ?? object.extractedText);
+      const ocrText = reportedOcr.slice(
+        0,
+        Math.min(MAX_OCR_CHARS_PER_OBJECT, remainingOcrCharacters)
+      );
+      remainingOcrCharacters -= ocrText.length;
+      if (ocrText) ocrTexts.push(ocrText);
+      const url = officialArchivesFileUrl(
+        object.downloadUrl ??
+          object.fileUrl ??
+          object.objectUrl ??
+          object.url
+      );
+      if (!url) return;
+      normalized.push({
+        id: makeId("nara-object", `${url}|${index}`),
+        url,
+        downloadUrl: officialArchivesFileUrl(
+          object.downloadUrl ?? object.fileUrl ?? object.objectUrl
+        ),
+        thumbnailUrl: officialArchivesUrl(object.thumbnailUrl ?? object.thumbnail),
+        mediaType: stringValue(object.objectType ?? object.mimeType ?? object.mediaType ?? object.type) || undefined,
+        pageNumber: Number(object.pageNumber ?? object.page) || undefined,
+        ocrText: ocrText || undefined,
+        sizeBytes: Number(object.objectFileSize ?? object.size ?? object.sizeBytes) || undefined
+      });
     });
-  });
-  return normalized;
+  return {
+    objects: normalized,
+    ocrTexts,
+    reportedCount: candidates.length
+  };
 }
 
 function recordFromHit(hit: Record<string, any>): Record<string, any> {
   return hit?._source?.record ?? hit?._source ?? hit?.record ?? hit;
 }
 
-function buildParameters(query: NormalizedSearchQuery): URLSearchParams {
+type ProfileScopeStatus = "not_scoped" | "verified" | "request_only" | "conflict";
+
+function explicitRecordGroupNumbers(record: Record<string, any>): Set<string> {
+  const ancestors = Array.isArray(record.ancestors) ? record.ancestors : [];
+  const numbers = new Set<string>();
+
+  [record.recordGroupNumber, record.recordGroupNo].forEach((value) => {
+    const candidate = stringValue(value);
+    if (/^\d{1,4}$/.test(candidate)) numbers.add(candidate);
+  });
+
+  [record, ...ancestors].forEach((entry: Record<string, any>) => {
+    const level = stringValue(entry.levelOfDescription)
+      .replace(/[^a-z]/gi, "")
+      .toLowerCase();
+    if (level !== "recordgroup") return;
+    [
+      entry.recordGroupNumber,
+      entry.recordGroupNo,
+      entry.recordGroup,
+      entry.localIdentifier,
+      entry.title,
+      entry.heading
+    ].forEach((value) => {
+      const candidate = stringValue(value);
+      if (/^\d{1,4}$/.test(candidate)) numbers.add(candidate);
+      for (const match of candidate.matchAll(/\b(?:record\s+group|RG)(?:\s+number)?\s*[:#-]?\s*(\d{1,4})\b/gi)) {
+        numbers.add(match[1]);
+      }
+    });
+  });
+  return numbers;
+}
+
+function profileScopeStatus(
+  record: Record<string, any>,
+  profile: NaraDiscoveryProfile
+): ProfileScopeStatus {
+  if (!profile.recordGroupNumber) return "not_scoped";
+  const recordGroups = explicitRecordGroupNumbers(record);
+  if (!recordGroups.size) return "request_only";
+  return recordGroups.size === 1 && recordGroups.has(profile.recordGroupNumber)
+    ? "verified"
+    : "conflict";
+}
+
+function buildParameters(query: NormalizedSearchQuery, profile: NaraDiscoveryProfile): URLSearchParams {
   const target = query.target;
   const parameters = new URLSearchParams({
     q: query.query.text,
@@ -138,6 +269,7 @@ function buildParameters(query: NormalizedSearchQuery): URLSearchParams {
   if (ancestorNaid) parameters.set("ancestorNaId", ancestorNaid);
   const recordGroup = identifierText.match(/\b(?:RG|record\s+group)[:#\s-]*(\d{1,4})\b/i)?.[1];
   if (recordGroup) parameters.set("recordGroupNumber", recordGroup);
+  if (profile.recordGroupNumber) parameters.set("recordGroupNumber", profile.recordGroupNumber);
   const collection = identifierText.match(/\bcollection[:#\s-]*([A-Z0-9][A-Z0-9._/-]{1,40})\b/i)?.[1];
   if (collection) parameters.set("collectionIdentifier", collection);
   const level = identifierText.match(/\blevel[:#\s-]*(record\s*group|collection|series|file\s*unit|item)\b/i)?.[1];
@@ -164,6 +296,8 @@ function buildParameters(query: NormalizedSearchQuery): URLSearchParams {
     const material = materialMappings.find(([pattern]) => pattern.test(target.documentType ?? ""))?.[1];
     if (material) parameters.set("typeOfMaterials", material);
   }
+  if (profile.availableOnlineOnly) parameters.set("availableOnline", "true");
+  if (profile.typeOfMaterials) parameters.set("typeOfMaterials", profile.typeOfMaterials);
   return parameters;
 }
 
@@ -182,17 +316,33 @@ async function fetchWithRetry(url: URL, apiKey: string, signal: AbortSignal): Pr
       signal,
       cf: { cacheTtl: 0, cacheEverything: false }
     } as RequestInit & { cf: { cacheTtl: number; cacheEverything: boolean } });
-    if (![429, 500, 502, 503, 504].includes(latest.status) || attempt === 1) return latest;
+    if (![500, 502, 503, 504].includes(latest.status) || attempt === 1) {
+      return latest;
+    }
     await new Promise((resolve) => setTimeout(resolve, 300 * 2 ** attempt));
   }
   return latest as Response;
 }
 
 export class NaraAdapter implements SourceAdapter<Record<string, any>> {
-  readonly id = "nara";
-  readonly name = "National Archives Catalog";
+  readonly id: NaraDiscoveryProfileId;
+  readonly name: string;
 
-  constructor(private readonly environment: NaraAdapterEnvironment) {}
+  constructor(
+    private readonly environment: NaraAdapterEnvironment,
+    private readonly profile: NaraDiscoveryProfile = NARA_DISCOVERY_PROFILES.nara
+  ) {
+    this.id = profile.id;
+    this.name = profile.name;
+  }
+
+  private profileWarnings(): string[] {
+    if (!this.profile.nativeRepositoryName || !this.profile.recordGroupNumber) return [];
+    return [
+      `This automated profile searches NARA Catalog Record Group ${this.profile.recordGroupNumber}. It does not search the native ${this.profile.nativeRepositoryName}.`,
+      `Record Group ${this.profile.recordGroupNumber} is a scoped NARA discovery aid, not complete coverage of every ${this.profile.id === "nara-cia-rg263" ? "CIA" : "Department of State"} record or release. Use the separately registered native repository handoff for separate coverage.`
+    ];
+  }
 
   async search(query: NormalizedSearchQuery, context: AdapterContext): Promise<SourceSearchResponse> {
     if (!this.environment.NARA_API_KEY) {
@@ -205,15 +355,18 @@ export class NaraAdapter implements SourceAdapter<Record<string, any>> {
           completedAt: new Date().toISOString(),
           resultCount: 0,
           message: "NARA_API_KEY is not configured on the Worker.",
-          manualSearchUrl: "https://catalog.archives.gov/"
+          manualSearchUrl: this.profile.manualSearchUrl
         },
         rawRecords: [],
         records: [],
-        warnings: ["Install NARA_API_KEY with Wrangler. Its value is never returned or logged."]
+        warnings: [
+          "Install NARA_API_KEY with Wrangler. Its value is never returned or logged.",
+          ...this.profileWarnings()
+        ]
       };
     }
     const upstream = assertSafeOutboundUrl(NARA_SEARCH_ENDPOINT, NARA_ALLOWED_HOSTS);
-    upstream.search = buildParameters(query).toString();
+    upstream.search = buildParameters(query, this.profile).toString();
     const response = await fetchWithRetry(upstream, this.environment.NARA_API_KEY, context.signal);
     if (!response.ok) {
       const error = new Error(
@@ -221,15 +374,30 @@ export class NaraAdapter implements SourceAdapter<Record<string, any>> {
       );
       throw error;
     }
-    const contentType = response.headers.get("content-type") ?? "";
-    if (!contentType.toLocaleLowerCase().includes("application/json")) {
-      throw new Error("NARA API did not return JSON; the key may be missing, inactive, or the query may have been misrouted");
-    }
-    const body = (await response.json()) as Record<string, any>;
+    const body = (await readBoundedJsonResponse(
+      response,
+      "NARA API",
+      MAX_NARA_RESPONSE_BYTES
+    )) as Record<string, any>;
     const payload = body.body ?? body;
     const hits = payload?.hits?.hits;
     if (!Array.isArray(hits)) throw new Error("NARA API response did not match the documented search-result schema");
+    const scopeStatuses = hits.map((hit: Record<string, any>) =>
+      profileScopeStatus(recordFromHit(hit), this.profile)
+    );
     const records = hits.flatMap((hit: Record<string, any>) => this.normalize(hit, query, context));
+    const requestOnlyCount = scopeStatuses.filter((status) => status === "request_only").length;
+    const conflictCount = scopeStatuses.filter((status) => status === "conflict").length;
+    const scopeMessage = [
+      requestOnlyCount
+        ? `${requestOnlyCount} ${requestOnlyCount === 1 ? "hit lacks" : "hits lack"} an explicit returned record-group number and ${requestOnlyCount === 1 ? "is" : "are"} labeled generic NARA pending hierarchy review.`
+        : "",
+      conflictCount
+        ? `${conflictCount} explicit record-group ${conflictCount === 1 ? "conflict was" : "conflicts were"} rejected.`
+        : ""
+    ]
+      .filter(Boolean)
+      .join(" ");
     return {
       sourceRun: {
         id: makeId("source-run"),
@@ -239,14 +407,27 @@ export class NaraAdapter implements SourceAdapter<Record<string, any>> {
         completedAt: new Date().toISOString(),
         resultCount: records.length,
         message: records.length
-          ? `${records.length} transient NARA results. API content is not cached or persisted.`
-          : "No NARA Catalog records matched this query."
+          ? `${records.length} transient ${this.name} ${records.length === 1 ? "result" : "results"}. API content is not cached or persisted. ${scopeMessage}`.trim()
+          : `No ${this.name} records matched this query. ${scopeMessage}`.trim(),
+        manualSearchUrl: this.id === "nara" ? undefined : this.profile.manualSearchUrl
       },
       rawRecords: [],
       records,
       warnings: [
         ATTRIBUTION,
-        "NARA API content is memory-only. Saving retains a generated NAID/official-URL locator and researcher-created data, not the API response."
+        "NARA API content is memory-only. Saving retains a generated NAID/official-URL locator and researcher-created data, not the API response.",
+        "Opstalia exposes a NARA digital-object link only when it is a direct file on an approved archives.gov host. Other reported storage locators are omitted until an exact host-and-path provenance policy is implemented.",
+        ...(requestOnlyCount
+          ? [
+              `${requestOnlyCount} RG-scoped ${requestOnlyCount === 1 ? "result did" : "results did"} not expose an explicit record-group number in the returned hierarchy. ${requestOnlyCount === 1 ? "It is" : "They are"} labeled as generic NARA Catalog evidence and require hierarchy review.`
+            ]
+          : []),
+        ...(conflictCount
+          ? [
+              `${conflictCount} ${conflictCount === 1 ? "result was" : "results were"} rejected because the returned hierarchy exposed a record group that conflicted with the fixed profile.`
+            ]
+          : []),
+        ...this.profileWarnings()
       ]
     };
   }
@@ -255,13 +436,19 @@ export class NaraAdapter implements SourceAdapter<Record<string, any>> {
     const record = recordFromHit(rawHit);
     const naid = stringValue(record.naId ?? record.naid ?? rawHit._id);
     if (!naid || !/^\d+$/.test(naid)) return [];
+    const scopeStatus = profileScopeStatus(record, this.profile);
+    if (scopeStatus === "conflict") return [];
     const officialUrl = `https://catalog.archives.gov/id/${naid}`;
-    const objects = digitalObjects(record);
+    const {
+      objects,
+      ocrTexts,
+      reportedCount: reportedDigitalObjectCount
+    } = digitalObjectData(record);
     const sourceText = [
-      stringValue(record.scopeAndContentNote),
+      stringValue(record.scopeAndContentNote).slice(0, 200_000),
       stringValue(record.title),
-      ...objects.map((object) => object.ocrText ?? "")
-    ].join(" ");
+      ...ocrTexts
+    ].join(" ").slice(0, 750_000);
     const markings = detectReleaseMarkings(sourceText, exemptionData.codes, undefined);
     const visibleCodes = [...new Set(markings.map((marking) => marking.code).filter((code): code is string => Boolean(code)))];
     const normalizedDate = normalizeDate(dateFromRecord(record));
@@ -281,7 +468,7 @@ export class NaraAdapter implements SourceAdapter<Record<string, any>> {
     );
     const title = stringValue(record.title) || `NARA Catalog record ${naid}`;
     const normalized: NormalizedRecord = {
-      id: makeId("nara", naid),
+      id: makeId(this.id, naid),
       title: sourced(title, "NARA Catalog API"),
       date: normalizedDate.iso ? sourced(normalizedDate.iso, "NARA Catalog API") : undefined,
       datePrecision: sourced(normalizedDate.precision, "Opstalia date normalization", 0.85),
@@ -290,7 +477,12 @@ export class NaraAdapter implements SourceAdapter<Record<string, any>> {
         ? sourced(stringValue(record.levelOfDescription), "NARA Catalog API")
         : undefined,
       subject: subjectNames.length ? sourced(subjectNames, "NARA Catalog API") : undefined,
-      sourceRepository: sourced("National Archives Catalog", "NARA Catalog API"),
+      sourceRepository: sourced(
+        scopeStatus === "verified"
+          ? this.profile.sourceRepository
+          : "National Archives Catalog",
+        "NARA Catalog API"
+      ),
       sourceCollection: collection ? sourced(collection, "NARA Catalog API") : undefined,
       officialUrl: sourced(officialUrl, "NARA Catalog API"),
       downloadUrl: objects[0]?.downloadUrl ? sourced(objects[0].downloadUrl, "NARA Catalog API") : undefined,
@@ -304,21 +496,38 @@ export class NaraAdapter implements SourceAdapter<Record<string, any>> {
         ? sourced(stringValue(record.localIdentifier ?? record.controlNumbers), "NARA Catalog API")
         : undefined,
       pageCount: Number(record.pageCount) ? sourced(Number(record.pageCount), "NARA Catalog API") : undefined,
-      digitizationStatus: sourced(objects.length ? "Digital objects reported" : "No public digital object reported", "NARA Catalog API"),
-      ocrAvailability: sourced(objects.some((object) => Boolean(object.ocrText)), "NARA Catalog API"),
+      digitizationStatus: sourced(
+        objects.length
+          ? "Direct public file locator passed the current NARA URL policy"
+          : reportedDigitalObjectCount
+            ? "NARA reports digital-object metadata; no direct file locator passed the current URL policy"
+            : "No public digital object reported",
+        "NARA Catalog API"
+      ),
+      ocrAvailability: sourced(ocrTexts.length > 0, "NARA Catalog API"),
       releaseStatus: determineReleaseStatus(
         {
-          hasDigitalObject: objects.length > 0,
+          hasDigitalObject:
+            reportedDigitalObjectCount > 0 || ocrTexts.length > 0,
           hasRedactionMarking: markings.length > 0,
-          metadataOnly: objects.length === 0
+          metadataOnly:
+            reportedDigitalObjectCount === 0 && ocrTexts.length === 0
         },
         "NARA Catalog API"
       ),
       exemptionCodes: visibleCodes,
       classificationMarkings: markings,
       extractedIdentifiers: extractIdentifiers(`${naid} ${sourceText} ${stringValue(record.localIdentifier)}`),
-      textSnippet: stringValue(record.scopeAndContentNote)
-        ? sourced(stringValue(record.scopeAndContentNote).slice(0, 1200), "NARA Catalog API")
+      textSnippet: stringValue(record.scopeAndContentNote) || ocrTexts.length
+        ? sourced(
+            (
+              stringValue(record.scopeAndContentNote) ||
+              ocrTexts.join(" ")
+            ).slice(0, 1200),
+            stringValue(record.scopeAndContentNote)
+              ? "NARA Catalog API"
+              : "NARA Catalog API OCR/extracted text"
+          )
         : undefined,
       digitalObjects: objects,
       provenance: {
@@ -327,7 +536,10 @@ export class NaraAdapter implements SourceAdapter<Record<string, any>> {
         officialDomain: "catalog.archives.gov",
         officialRecordUrl: officialUrl,
         retrievalTimestamp: context.retrievedAt,
-        normalizationVersion: "1.0.0"
+        normalizationVersion:
+          this.id === "nara"
+            ? "1.0.0"
+            : "1.0.0-nara-catalog-profile"
       },
       retrievalTimestamp: context.retrievedAt,
       confidenceScore: 0,
@@ -347,7 +559,7 @@ export class NaraAdapter implements SourceAdapter<Record<string, any>> {
       checkedAt: new Date().toISOString(),
       secretConfigured: Boolean(this.environment.NARA_API_KEY),
       message: this.environment.NARA_API_KEY
-        ? "NARA secret is configured; an actual schema-validating search is still the operational health check."
+        ? `NARA secret is configured for ${this.name}; an actual schema-validating search is still the operational health check.`
         : "NARA_API_KEY is not configured."
     };
   }

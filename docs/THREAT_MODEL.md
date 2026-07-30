@@ -10,8 +10,8 @@ This threat model covers:
 - the React/Vite frontend served from GitHub Pages;
 - browser-local IndexedDB and in-memory state;
 - checked-in FRUS, ISCAP, and NDC indexes and their build scripts;
-- the Cloudflare Worker NARA proxy;
-- the NARA Catalog upstream request;
+- the Cloudflare Worker fixed adapter registry;
+- NARA Catalog, GovInfo, NASA NTRS, and OSTI.GOV upstream requests;
 - registered manual links and official-file viewers;
 - project JSON import and report/project exports; and
 - the release and dependency supply chain.
@@ -40,7 +40,7 @@ connection or synchronization with a closed network.
 
 | Asset | Desired property |
 | --- | --- |
-| `NARA_API_KEY` and deployment credentials | Confidentiality and prompt revocation if exposed |
+| `NARA_API_KEY`, `GOVINFO_API_KEY`, and deployment credentials | Confidentiality and prompt revocation if exposed |
 | Search terms and researcher notes | No application logging; local retention only when chosen |
 | Saved projects and annotations | Integrity, local availability, explicit deletion/export |
 | Official-source registry | Integrity and reviewable change history |
@@ -52,7 +52,7 @@ connection or synchronization with a closed network.
 
 ## Adversaries and hazardous actors
 
-- an Internet user attempting to exhaust the Worker or NARA quota;
+- an Internet user attempting to exhaust the Worker or an upstream quota;
 - a malicious user entering markup, formula payloads, oversized JSON, or a
   crafted URL;
 - an attacker controlling a dependency, upstream index source, official page,
@@ -76,7 +76,7 @@ connection or synchronization with a closed network.
    device environment.
 4. **Browser to Worker:** unclassified query text and network metadata cross
    the public Internet and Cloudflare edge.
-5. **Worker to NARA:** a secret-bearing request crosses to the official API.
+5. **Worker to official API:** source-specific requests cross to NARA, GovInfo, NASA NTRS, or OSTI.GOV. NARA and GovInfo requests carry their respective server-side source key; NTRS and OSTI requests do not.
 6. **Browser to manual source or file:** the user leaves Opstalia's runtime
    control and interacts with the official host. A displayed prefilled handoff
    transmits its prepared terms and filters when the user opens it.
@@ -91,22 +91,25 @@ connection or synchronization with a closed network.
 | --- | --- | --- |
 | Classified, CUI, PII, or restricted data entered as search text | Prominent notice, affirmative acknowledgement, unclassified-only labels, no document upload | A public app cannot inspect or reliably classify inputs. User and organization remain responsible; stop and follow incident procedure if entered |
 | Misbelief that Opstalia synchronizes with Opstalia-c | Repeated public-build boundary; no connector, route, datastore, or protocol | Future marketing or code could create ambiguity; any integration requires a new review and authorization |
-| NARA key leaked into frontend or repository | Worker secret, placeholder environment file, ignore rules, health Boolean only, secret scanner, error redaction | Maintainer credential/build compromise or manual copy remains possible; inspect Git history and built source maps and rotate on suspicion |
+| NARA or GovInfo key leaked into frontend or repository | Worker secrets, placeholder environment file, ignore rules, health Booleans only, secret scanner, error redaction | Maintainer credential/build compromise or manual copy remains possible; inspect Git history and built source maps and rotate on suspicion |
 | Cross-origin abuse of Worker | Exact origin allowlist and CORS rejection | CORS is not authentication and non-browser clients can send requests. Rate limiting and quota monitoring remain necessary |
-| NARA quota exhaustion or denial of service | 30/minute per ephemeral derived key, at most three NARA plan variants, source timeout, one bounded retry, partial failure | Per-isolate limiter is neither global nor durable; distributed abuse can evade it. Cloudflare-level rate rules may be needed |
-| SSRF or secret forwarding through source URL, query input, or redirect | Fixed NARA endpoint, HTTPS/host/authority/port checks, redirects rejected, no user-selectable outbound URL | A future adapter that accepts redirects or URLs could reopen SSRF. Revalidate every hop and DNS behavior before adding one |
+| Upstream quota exhaustion or denial of service | 30/minute per ephemeral derived key, at most three Worker-backed plan variants per source, source timeout, bounded retries where implemented, partial failure | Per-isolate limiter is neither global nor durable; distributed abuse can evade it. Source-specific limits and Cloudflare-level rate rules may be needed |
+| SSRF or secret forwarding through source URL, source ID, query input, or redirect | Fixed adapter-ID registry; fixed per-adapter endpoints; HTTPS/host/authority/port checks; redirects rejected; no user-selectable outbound URL | A future adapter that accepts redirects or URLs could reopen SSRF. Revalidate every hop and DNS behavior before adding one |
+| Malformed or oversized upstream result reaches the browser | Worker and browser runtime-validate responses; streamed upstream JSON is capped at 12,000,000 bytes for NARA and 5,000,000 bytes for GovInfo/NTRS/OSTI; admission checks source identity, provenance, every result/file URL, and GovInfo/NTRS/OSTI record-ID binding; NARA also caps reported objects/OCR and exposes only recognized direct files on approved `archives.gov` hosts | A schema-valid source payload can still be misleading or expensive. Keep per-adapter bounds, rendering limits, and regression tests under review |
 | Unofficial source or generic official-site page presented as primary evidence | Registry-based domains, adapter/provenance match, and HTTPS are required; researcher locators from manual sources must also match adapter-specific direct record-page or record-file paths, so generic search-results, status, home, publications, collection, and navigation pages are rejected | An allowlisted direct record or file can still be unrelated, mislabeled, incomplete, or compromised. Researcher confirmation and human source-page review remain required |
 | Subdomain confusion or malformed URL | Parsed URL and label-boundary subdomain comparison; HTTPS only | Registry changes can approve an overly broad parent domain. Review every domain addition and test deceptive suffixes |
 | Source failure triggers leak/mirror fallback | Per-source isolation and honest manual official links; no unofficial fallback | Users can independently leave the tool; reports must not treat those materials as primary official evidence |
-| Stored NARA API content violates current terms | Worker/browser `no-store`, upstream cache disabled, no raw NARA record return, locator-only IndexedDB and export sanitizer | A future persistence or export path could omit the shared sanitizer; regression tests remain required |
-| Full queries or addresses appear in logs | Worker observability disabled; no body/query/header logging; address used only for an in-memory hash; manual handoffs show exactly which terms will be sent and open only on user action | GitHub, Cloudflare, NARA, a manually selected official source, browser, proxy, or enterprise infrastructure may log independently. Private mode is not anonymity |
+| Stored NARA API content violates current terms | Worker/browser `no-store`, upstream cache disabled, no raw NARA record return, locator-only IndexedDB and export sanitizer for general and RG-profile results | A future persistence or export path could omit the shared sanitizer; regression tests remain required |
+| Full queries or addresses appear in logs | Worker observability disabled; no body/query/header logging; address used only for an in-memory hash; manual handoffs show exactly which terms will be sent and open only on user action | GitHub, Cloudflare, NARA, GovInfo, NTRS, OSTI, a manually selected official source, browser, proxy, or enterprise infrastructure may log independently. Private mode is not anonymity |
+| Publication or STI result mistaken for declassification evidence | Separate GovInfo/NTRS/OSTI source identities, `not_determined` or `metadata_only` defaults, warnings, and documented corpus limits | An official public record can still be overread. Researchers must verify release mechanism and agency determination at the controlling official source |
+| NARA RG profile mistaken for native CIA/State FOIA coverage | Separate source IDs and provenance, fixed record-group filters, visible warnings, native adapters retained as manual/unavailable | NARA holdings are incomplete and users may ignore labels. Reports must not merge profile and native source-run claims |
 | XSS through title, OCR, source metadata, or imported data | React text rendering, no source HTML injection, printable HTML escaping, CSP, no plugin objects | Future rich HTML, markdown, OCR highlighting, or PDF.js integration can bypass current assumptions; sanitize and test before use |
 | Spreadsheet formula injection in CSV | Values beginning with `=`, `+`, `-`, or `@` are prefixed | Spreadsheet behaviors vary; open exports in protected mode and preserve source text |
 | Malicious imported project | 20 MB byte cap, deep runtime schema and collection bounds, official-domain checks, React escaping, fixture claims cleared | Imported provenance and researcher judgments remain portable assertions rather than live source authentication; the UI marks them as not revalidated |
 | Malicious or malformed official PDF | No upload or Worker parsing; approved HTTPS provenance; sandboxed browser frame | Browser PDF engine and official host remain attack surfaces. Do not bypass warnings; stronger isolation/content controls are prerequisites to processing |
 | Clickjacking or cross-site embedding | CSP declares `frame-ancestors 'none'`; Worker CSP uses a response header | `frame-ancestors` in a meta CSP is not a substitute for a host response header. GitHub Pages header control is limited |
 | Data loss from local-only storage | Explicit JSON/report export and import; clear/delete controls | Browser eviction, user clearing, profile loss, or device failure can destroy projects. Exports create new copies with separate privacy risk |
-| Private-mode data unexpectedly retained | No project persistence, no share fragment, in-memory workspace, NARA no-store | Static assets/indexes may cache; screenshots, downloads, copied text, browser/extension state, provider logs, and previously saved projects remain |
+| Private-mode data unexpectedly retained | No project persistence, no share fragment, in-memory workspace, Worker no-store | Static assets/indexes may cache; screenshots, downloads, copied text, browser/extension state, provider logs, and previously saved projects remain |
 | Cross-project access on GitHub Pages origin | Namespaced IndexedDB and no secrets in browser storage | Same-origin scripts under the GitHub Pages host are a broad trust boundary. Do not store restricted data; dedicated origin would reduce exposure |
 | Pinned index tampering or staleness | FRUS commit pin; ISCAP/NDC source SHA-256; official URLs, generation dates, schema/minimum-size checks, known limitations | Hash records what was fetched but is not an independent signature. Maintainer/build compromise and stale source data remain possible |
 | Dependency or Actions supply-chain compromise | Lockfile, minimal runtime dependencies, audit/scan scripts, intended CI checks | Lockfiles are not signatures. Pin Actions, review lockfile changes, use least-privilege tokens, and verify release artifacts |
@@ -126,11 +129,11 @@ classification guard. The correct response is to stop, avoid redisclosure, and
 follow the controlling organization's incident procedure. No maintainer should
 request the text for debugging.
 
-### A researcher enters a sensitive note in a NARA search
+### A researcher enters a sensitive note in a live search
 
 Search notes are local research annotations. The client explicitly strips the
-field before serializing a NARA request, so it reaches neither the Worker nor
-NARA. Notes can still be saved to IndexedDB and included in researcher-created
+field before serializing any Worker request, so it reaches neither the Worker
+nor the selected official API. Notes can still be saved to IndexedDB and included in researcher-created
 project/report exports. They must remain unclassified and unrestricted, and a
 regression test should continue to prove the live-request exclusion.
 
@@ -166,7 +169,7 @@ the imported provenance as current.
 ## Privacy and classification consequences
 
 Search query confidentiality is limited by design: live queries must traverse
-GitHub/Cloudflare/NARA or a manually selected official site. Private mode
+GitHub/Cloudflare and the selected official API, or a manually selected official site. Private mode
 changes local Opstalia retention; it does not change the classification
 boundary or provide anonymity.
 
@@ -227,7 +230,7 @@ A release review should retain:
 - FRUS commit and ISCAP/NDC source hashes;
 - test, accessibility, dependency-audit, and secret-scan results;
 - the release commit and deployed frontend/Worker identities;
-- confirmation that the NARA key is absent from repository history, source
+- confirmation that NARA and GovInfo keys are absent from repository history, source
   maps, and frontend bundles;
 - CORS, SSRF, no-store, timeout, and unofficial-domain rejection tests; and
 - confirmation that the required unclassified-use acknowledgement remains

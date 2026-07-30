@@ -6,31 +6,36 @@
 
 It does not search all U.S. Government websites, and it does not claim that the absence of a result establishes non-release.
 
-Registry version: **1.0.1**
+Registry version: **1.1.0**
 Last source-interface validation: **2026-07-29**
-Registered sources: **30**
+Registered sources: **34**
 
 ## Status summary
 
 | Registry status | Count | Meaning |
 |---|---:|---|
 | Integrated | 2 | Working automated adapter with declared coverage |
-| Beta | 2 | Working automated adapter whose source structure or interpretation needs continued monitoring |
+| Beta | 7 | Working automated adapter whose source structure or interpretation needs continued monitoring |
 | Manual | 20 | Official user-initiated handoff or manual-search link; Opstalia does not fetch or normalize results |
 | Temporarily unavailable | 1 | The upstream search was not usable at validation; prepared terms and official status/publications/retry links remain |
-| Planned | 5 | Discovery entry and official link; no automated or complete manual workflow claim |
+| Planned | 4 | Discovery entry and official link; no automated or complete manual workflow claim |
 | Retired | 0 | No retired sources |
 
 “Automated” includes live API execution and searches over reproducibly built, checked-in official-source indexes. The interface shows the method for each source.
 
 ## Automated coverage
 
-| Source | Status | Runtime method | Exact 1.0 coverage | Important limit |
+| Source | Status | Runtime method | Exact current coverage | Important limit |
 |---|---|---|---|---|
 | National Archives Catalog | Integrated | Live Catalog API v2 through Cloudflare Worker | Query-time NARA results, up to 20 requested per plan query; first three NARA-targeted query variants | Requires server-side `NARA_API_KEY`; API responses are neither cached nor stored |
+| CIA records held by NARA — RG 263 | Beta | Optional NARA Catalog API profile through Cloudflare Worker | Available-online textual request with `recordGroupNumber=263`; returned hierarchy is checked before the RG label is used | Requires `NARA_API_KEY`; does not search the native CIA FOIA Electronic Reading Room; RG 263 is not every CIA-related record |
+| Department of State records held by NARA — RG 59 | Beta | Optional NARA Catalog API profile through Cloudflare Worker | Available-online textual request with `recordGroupNumber=59`; returned hierarchy is checked before the RG label is used | Requires `NARA_API_KEY`; does not search native State FOIA or RG 84 Foreign Service Post records |
+| GovInfo | Beta | Documented Search Service through Cloudflare Worker | Query-time official publication/package discovery | Requires server-side `GOVINFO_API_KEY`; official publication is not automatically declassification or full-release evidence |
+| NASA Technical Reports Server | Beta | Documented NTRS citations API through Cloudflare Worker | Query-time public NASA scientific and technical information | Not a unified NASA FOIA reading room; public availability does not establish declassification or release in full |
+| OSTI.GOV scientific and technical information | Beta | Documented OSTI API v1 through Cloudflare Worker | Query-time public DOE-funded scientific and technical information | Separate from DOE OpenNet; public availability does not establish declassification or release in full |
 | Office of the Historian / FRUS | Integrated | Browser-local pinned TEI index | 752 documents across `frus1981-88v03`, `frus1981-88v05`, and `frus1981-88v06` | Not the full FRUS series; edited publication, not necessarily a facsimile |
 | ISCAP releases | Beta | Browser-local pinned official-table index | 529 release-table objects | A linked PDF is not automatically a full release; some entries are notifications |
-| National Declassification Center release lists | Beta | Browser-local pinned official-workbook index | 121 rows from FY2026 Q3 | Generally series-level finding-aid/availability data, not item-level online copies |
+| National Declassification Center release lists | Beta | Browser-local pinned official-workbook index | 133 entries from FY2026 Q3 | Generally series-level finding-aid/availability data, not item-level online copies |
 
 ### Static-index provenance
 
@@ -40,7 +45,9 @@ Registered sources: **30**
 | ISCAP | Official `archives.gov/declassification/iscap/releases` HTML; checked-in index records the source SHA-256 |
 | NDC | Official FY2026 Q3 `archives.gov` workbook; checked-in index records the source SHA-256 |
 
-These counts describe the checked-in 1.0 build, not a promise that an upstream source still has the same count.
+These counts describe the checked-in build, not a promise that an upstream source still has the same count.
+
+The NARA record-group profiles and native reading-room entries are deliberately separate source IDs. A hit from `nara-cia-rg263` or `nara-state-rg59` is a NARA Catalog result, not evidence that Opstalia searched or found the record in CIA's or State's native FOIA systems.
 
 ## Temporarily unavailable
 
@@ -95,7 +102,6 @@ Research reports keep three states distinct: automated searches run by Opstalia,
 
 | Source | Reason it remains planned |
 |---|---|
-| GovInfo | A future API adapter would require a server-side `GOVINFO_API_KEY`; official publication is not automatically declassification evidence |
 | EPA FOIA | No adapter validated for 1.0 |
 | Interior FOIA Libraries | No adapter validated for 1.0 |
 | HHS FOIA Library | No adapter validated for 1.0 |
@@ -104,9 +110,11 @@ Research reports keep three states distinct: automated searches run by Opstalia,
 ## Source-specific interpretive limits
 
 - NARA Catalog indexing and metadata may be incomplete. Digitized does not mean declassified or fully released.
+- RG 263 and RG 59 profiles are opt-in, fixed-filter NARA requests. Explicitly conflicting returned hierarchy is rejected; a returned hit that exposes no group number remains generic NARA evidence requiring review. They do not search native agency FOIA repositories or establish complete agency coverage.
 - FRUS is an official documentary publication. Bracketed omissions, source notes, and editorial interventions must be read as editorial evidence, not automatically as archival redaction markings.
 - ISCAP release-table entries can link to released documents or decision notifications. Presence in the table does not prove full release.
 - NDC release lists may describe series that completed declassification processing while other access restrictions or FOIA screening remain.
+- GovInfo is official publication discovery; NTRS and OSTI are official scientific-and-technical-information discovery. None of those corpus labels alone establishes declassification, FOIA release, or release in full.
 - Agency reading rooms vary in OCR quality, indexing, date fields, and availability.
 - Presidential-library holdings are not completely represented by one unified search API.
 - A record can be publicly accessible without being discoverable through an API.

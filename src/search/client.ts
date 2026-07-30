@@ -1,4 +1,7 @@
-import { apiSearchRequestSchema } from "../core/validation";
+import {
+  apiSearchRequestSchema,
+  sourceSearchResponseSchema
+} from "../core/validation";
 import { makeId } from "../core/id";
 import type {
   NormalizedRecord,
@@ -10,12 +13,24 @@ import type {
 } from "../core/types";
 import { deduplicateRecords } from "../analysis/versioning";
 import { normalizeError } from "../security/redaction";
+import { validateNormalizedRecordEvidence } from "../security/url-policy";
 import { searchFrus, searchIscap, searchNdc } from "./local-adapters";
 import { buildManualSearchHandoff } from "./manual-handoff";
 
 const PUBLIC_API_BASE = (import.meta.env.VITE_API_BASE as string | undefined)?.replace(/\/$/, "");
 const SOURCE_CONCURRENCY = 4;
 const SOURCE_TIMEOUT_MS = 20_000;
+const NARA_WORKER_SOURCE_IDS = new Set([
+  "nara",
+  "nara-cia-rg263",
+  "nara-state-rg59"
+]);
+const WORKER_SOURCE_IDS = new Set([
+  ...NARA_WORKER_SOURCE_IDS,
+  "govinfo",
+  "nasa-ntrs",
+  "osti-sti"
+]);
 
 export function apiConfigured(): boolean {
   return Boolean(PUBLIC_API_BASE);
@@ -60,21 +75,37 @@ function plannedResponse(source: SourceDefinition): SourceSearchResponse {
   };
 }
 
-async function searchNara(query: NormalizedSearchQuery, signal?: AbortSignal): Promise<SourceSearchResponse> {
+async function searchWorkerSource(
+  source: SourceDefinition,
+  query: NormalizedSearchQuery,
+  signal?: AbortSignal
+): Promise<SourceSearchResponse> {
   if (!PUBLIC_API_BASE) {
     return {
       sourceRun: {
         id: makeId("source-run"),
-        sourceId: "nara",
+        sourceId: source.id,
         status: "temporarily_unavailable",
         completedAt: new Date().toISOString(),
         resultCount: 0,
-        message: "The production Worker URL is not configured. Install the Worker secrets and set VITE_API_BASE.",
-        manualSearchUrl: "https://catalog.archives.gov/"
+        message:
+          "The production Worker URL is not configured. Deploy the Worker and set VITE_API_BASE; NARA and GovInfo additionally require their server-side API secrets.",
+        manualSearchUrl: source.manualSearchUrl
       },
       rawRecords: [],
       records: [],
-      warnings: ["NARA search requires the server-side NARA_API_KEY; no API key belongs in the browser."]
+      warnings: source.id === "govinfo"
+        ? ["GovInfo search requires a server-side GOVINFO_API_KEY; no API key belongs in the browser."]
+        : NARA_WORKER_SOURCE_IDS.has(source.id)
+          ? [
+              "NARA search requires the server-side NARA_API_KEY; no API key belongs in the browser.",
+              ...(source.id === "nara"
+                ? []
+                : [
+                    `This automated profile searches the NARA Catalog only; it does not search the native ${source.id === "nara-cia-rg263" ? "CIA FOIA Electronic Reading Room" : "Department of State FOIA Virtual Reading Room"}.`
+                  ])
+            ]
+          : ["This official public API is routed through the Opstalia Worker because the upstream does not provide a supported browser CORS interface."]
     };
   }
   const validated = apiSearchRequestSchema.parse({
@@ -84,7 +115,7 @@ async function searchNara(query: NormalizedSearchQuery, signal?: AbortSignal): P
       notes: undefined
     }
   });
-  const response = await fetch(`${PUBLIC_API_BASE}/api/search/nara`, {
+  const response = await fetch(`${PUBLIC_API_BASE}/api/search/${source.id}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(validated),
@@ -93,10 +124,39 @@ async function searchNara(query: NormalizedSearchQuery, signal?: AbortSignal): P
     credentials: "omit"
   });
   if (!response.ok) {
-    const error = await response.json().catch(() => ({ message: `NARA adapter returned ${response.status}` }));
+    const error = await response.json().catch(() => ({ message: `${source.displayName} adapter returned ${response.status}` }));
     throw new Error(String((error as { message?: string }).message ?? response.status));
   }
-  return (await response.json()) as SourceSearchResponse;
+  const result = sourceSearchResponseSchema.parse(
+    await response.json()
+  ) as SourceSearchResponse;
+  if (
+    result.sourceRun.sourceId !== source.id ||
+    result.rawRecords.some((record) => record.sourceId !== source.id)
+  ) {
+    throw new Error("Worker adapter response source identity did not match the selected registry source.");
+  }
+  const acceptedRecords = result.records.filter((record) =>
+    validateNormalizedRecordEvidence(record, source).allowed
+  );
+  const rejectedCount = result.records.length - acceptedRecords.length;
+  return {
+    ...result,
+    sourceRun: {
+      ...result.sourceRun,
+      resultCount: acceptedRecords.length,
+      message: rejectedCount
+        ? `${result.sourceRun.message ?? ""} Opstalia rejected ${rejectedCount} result${rejectedCount === 1 ? "" : "s"} that failed the official-domain, file-URL, or adapter-provenance gate.`.trim()
+        : result.sourceRun.message
+    },
+    records: acceptedRecords,
+    warnings: rejectedCount
+      ? [
+          ...result.warnings,
+          `${rejectedCount} Worker result${rejectedCount === 1 ? "" : "s"} failed the official-domain, file-URL, or adapter-provenance gate and did not enter the primary index.`
+        ]
+      : result.warnings
+  };
 }
 
 export interface FederatedSearchResult {
@@ -108,7 +168,8 @@ export interface FederatedSearchResult {
 
 async function withSourceTimeout<T>(
   parentSignal: AbortSignal | undefined,
-  work: (signal: AbortSignal) => Promise<T>
+  work: (signal: AbortSignal) => Promise<T>,
+  timeoutMs = SOURCE_TIMEOUT_MS
 ): Promise<T> {
   const controller = new AbortController();
   let timedOut = false;
@@ -118,7 +179,7 @@ async function withSourceTimeout<T>(
   const timeout = setTimeout(() => {
     timedOut = true;
     controller.abort(new DOMException("Source timeout", "TimeoutError"));
-  }, SOURCE_TIMEOUT_MS);
+  }, timeoutMs);
   try {
     return await work(controller.signal);
   } catch (error) {
@@ -136,7 +197,8 @@ export async function runFederatedSearch(
   privateMode: boolean,
   onRun: (run: SourceRun) => void,
   onPartial: (response: SourceSearchResponse) => void,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  sourceTimeoutMs = SOURCE_TIMEOUT_MS
 ): Promise<FederatedSearchResult> {
   const enabledQueries = plan.queries.filter((query) => query.enabled);
   const responses: SourceSearchResponse[] = [];
@@ -167,7 +229,10 @@ export async function runFederatedSearch(
         responses.push(response);
         return;
       }
-      const relevant = enabledQueries.filter((query) => !query.sourceIds.length || query.sourceIds.includes(source.id));
+      const targetedQueries = enabledQueries.filter(
+        (query) => query.sourceIds.includes(source.id)
+      );
+      const relevant = targetedQueries;
       if (!relevant.length) {
         const response: SourceSearchResponse = {
           sourceRun: {
@@ -187,29 +252,71 @@ export async function runFederatedSearch(
         responses.push(response);
         return;
       }
-      const cappedQueries = source.id === "nara" ? relevant.slice(0, 3) : relevant;
+      const cappedQueries = WORKER_SOURCE_IDS.has(source.id) ? relevant.slice(0, 3) : relevant;
       const sourceResponses: SourceSearchResponse[] = [];
+      const appendFailedQuery = (label: string, message: string) => {
+        sourceResponses.push({
+          sourceRun: {
+            id: makeId("source-run"),
+            sourceId: source.id,
+            status: "temporarily_unavailable",
+            completedAt: new Date().toISOString(),
+            resultCount: 0,
+            message: `${label}: ${message}`,
+            manualSearchUrl: source.manualSearchUrl
+          },
+          rawRecords: [],
+          records: [],
+          warnings: [
+            `${label} failed without discarding other completed ${source.displayName} query results: ${message}`
+          ]
+        });
+      };
       for (const searchQuery of cappedQueries) {
-        if (sourceSignal.aborted) throw new DOMException("Search cancelled", "AbortError");
+        if (sourceSignal.aborted) {
+          if (signal?.aborted) throw new DOMException("Search cancelled", "AbortError");
+          appendFailedQuery(searchQuery.label, "Source timeout");
+          break;
+        }
         const normalized: NormalizedSearchQuery = {
           target: plan.target,
           query: searchQuery,
           limit: 20,
           privateMode
         };
-        const result =
-          source.id === "nara"
-            ? await searchNara(normalized, sourceSignal)
-            : source.id === "frus"
-              ? await searchFrus(normalized, sourceSignal)
-              : source.id === "iscap"
-                ? await searchIscap(normalized, sourceSignal)
-                : source.id === "ndc"
-                  ? await searchNdc(normalized, sourceSignal)
-                  : manualResponse(source, plan);
-        sourceResponses.push(result);
+        try {
+          const result =
+            WORKER_SOURCE_IDS.has(source.id)
+              ? await searchWorkerSource(source, normalized, sourceSignal)
+              : source.id === "frus"
+                ? await searchFrus(normalized, sourceSignal)
+                : source.id === "iscap"
+                  ? await searchIscap(normalized, sourceSignal)
+                  : source.id === "ndc"
+                    ? await searchNdc(normalized, sourceSignal)
+                    : manualResponse(source, plan);
+          sourceResponses.push(result);
+        } catch (error) {
+          if (sourceSignal.aborted && signal?.aborted) throw error;
+          const message = sourceSignal.aborted
+            ? "Source timeout"
+            : normalizeError(error).message;
+          appendFailedQuery(searchQuery.label, message);
+          if (sourceSignal.aborted) break;
+        }
       }
       const records = deduplicateRecords(sourceResponses.flatMap((response) => response.records));
+      const failedQueryCount = sourceResponses.filter(
+        (response) =>
+          response.sourceRun.status === "temporarily_unavailable" ||
+          response.sourceRun.status === "blocked"
+      ).length;
+      const hasGenericNaraProfileHits = sourceResponses.some((response) =>
+        response.sourceRun.message?.includes("labeled generic NARA")
+      );
+      const hasRejectedNaraProfileConflicts = sourceResponses.some((response) =>
+        response.sourceRun.message?.includes("record-group conflict")
+      );
       const merged: SourceSearchResponse = {
         sourceRun: {
           id: makeId("source-run"),
@@ -223,8 +330,9 @@ export async function runFederatedSearch(
           completedAt: new Date().toISOString(),
           resultCount: records.length,
           message: records.length
-            ? `${records.length} unique official results across ${cappedQueries.length} plan ${cappedQueries.length === 1 ? "query" : "queries"}.`
-            : sourceResponses.map((response) => response.sourceRun.message).filter(Boolean).join(" ")
+            ? `${records.length} unique official results across ${cappedQueries.length} plan ${cappedQueries.length === 1 ? "query" : "queries"}.${failedQueryCount ? ` ${failedQueryCount} ${failedQueryCount === 1 ? "query failed" : "queries failed"} without discarding these results.` : ""}${hasGenericNaraProfileHits ? " Some profile hits remain generic NARA evidence pending hierarchy review." : ""}${hasRejectedNaraProfileConflicts ? " Explicit record-group conflicts were rejected." : ""}`
+            : sourceResponses.map((response) => response.sourceRun.message).filter(Boolean).join(" "),
+          manualSearchUrl: sourceResponses.find((response) => response.sourceRun.manualSearchUrl)?.sourceRun.manualSearchUrl
         },
         records,
         rawRecords: sourceResponses.flatMap((response) => response.rawRecords),
@@ -233,7 +341,7 @@ export async function runFederatedSearch(
       onRun(merged.sourceRun);
       onPartial(merged);
       responses.push(merged);
-    });
+    }, sourceTimeoutMs);
 
   let nextSourceIndex = 0;
   const runner = async () => {
@@ -278,10 +386,20 @@ export async function checkBackendHealth(signal?: AbortSignal): Promise<{ ready:
   if (!PUBLIC_API_BASE) return { ready: false, message: "Worker URL not configured" };
   try {
     const response = await fetch(`${PUBLIC_API_BASE}/api/health`, { signal, cache: "no-store", credentials: "omit" });
-    const body = (await response.json()) as { ready?: boolean; naraSecretConfigured?: boolean };
+    const body = (await response.json()) as {
+      ready?: boolean;
+      naraSecretConfigured?: boolean;
+      govInfoSecretConfigured?: boolean;
+    };
+    const configured = [
+      body.naraSecretConfigured ? "NARA" : undefined,
+      body.govInfoSecretConfigured ? "GovInfo" : undefined
+    ].filter(Boolean);
     return {
       ready: response.ok && Boolean(body.ready),
-      message: body.naraSecretConfigured ? "Worker reachable; NARA secret is configured" : "Worker reachable; NARA secret is not configured"
+      message: `Worker reachable; public API adapters are available; ${
+        configured.length ? `${configured.join(" and ")} ${configured.length === 1 ? "secret is" : "secrets are"} configured` : "NARA and GovInfo secrets are not configured"
+      }`
     };
   } catch {
     return { ready: false, message: "Worker health check unavailable" };

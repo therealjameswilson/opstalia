@@ -3,6 +3,7 @@ import { createHash } from "node:crypto";
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { buildNdcRecords, findNdcHeaderRowIndex } from "./ndc-index-utils.mjs";
 
 const SOURCE_PAGE = "https://www.archives.gov/declassification/ndc-2";
 const SOURCE_URL = "https://www.archives.gov/files/3rd-quarter-release-list-fy-26-.xlsx";
@@ -51,30 +52,15 @@ try {
     }
     return values;
   });
-  const headerRowIndex = rows.findIndex((row) => row.some((value) => /record group|collection|series/i.test(value ?? "")));
-  if (headerRowIndex < 0) throw new Error("NDC worksheet headers were not recognized");
-  const headers = rows[headerRowIndex].map((value, index) => value || `column_${index + 1}`);
-  const records = rows
-    .slice(headerRowIndex + 1)
-    .filter((row) => row.some((value) => String(value ?? "").trim()))
-    .map((row, index) => {
-      const fields = Object.fromEntries(headers.map((header, cellIndex) => [header, row[cellIndex] ?? ""]));
-      const searchableText = Object.values(fields).join(" ");
-      return {
-        id: `ndc-fy2026q3-${index + 1}`,
-        title:
-          row.find((value) => /[A-Za-z]{4}/.test(String(value ?? "")) && String(value).length > 15) ??
-          `NDC FY2026 Q3 release-list entry ${index + 1}`,
-        fields,
-        searchableText,
-        officialUrl: SOURCE_URL,
-        recordPageUrl: SOURCE_PAGE,
-        releaseStatus: /not available online/i.test(searchableText) ? "described_but_not_digitized" : "finding_aid_only"
-      };
-    });
+  const headerRowIndex = findNdcHeaderRowIndex(rows);
+  const { headers, records } = buildNdcRecords(rows, headerRowIndex, {
+    sourceUrl: SOURCE_URL,
+    sourcePage: SOURCE_PAGE,
+    releaseQuarter: "FY2026 Q3"
+  });
   if (records.length < 50) throw new Error(`Unexpectedly small NDC index: ${records.length}`);
   const output = {
-    schemaVersion: 1,
+    schemaVersion: 2,
     sourcePage: SOURCE_PAGE,
     sourceUrl: SOURCE_URL,
     releaseQuarter: "FY2026 Q3",
