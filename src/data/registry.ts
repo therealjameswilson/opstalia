@@ -2,11 +2,14 @@ import sourceData from "../../data/sources.json";
 import exemptionData from "../../data/exemption-codes.json";
 import demoData from "../../data/demo-fixtures.json";
 import type { ExemptionCode, SourceDefinition } from "../core/types";
+import { sourceRegistryDataSchema } from "../core/validation";
 
-export const sourceRegistry = sourceData.sources as SourceDefinition[];
-export const sourceRegistryVersion = sourceData.version;
-export const sourceRegistryValidated = sourceData.lastValidated;
-export const sourcePolicyStatement = sourceData.policyStatement;
+const validatedSourceData = sourceRegistryDataSchema.parse(sourceData);
+
+export const sourceRegistry = validatedSourceData.sources as SourceDefinition[];
+export const sourceRegistryVersion = validatedSourceData.version;
+export const sourceRegistryValidated = validatedSourceData.lastValidated;
+export const sourcePolicyStatement = validatedSourceData.policyStatement;
 export const exemptionCodes = exemptionData.codes as ExemptionCode[];
 export const exemptionDictionaryVersion = exemptionData.version;
 export const exemptionInterpretationWarning = exemptionData.interpretationWarning;

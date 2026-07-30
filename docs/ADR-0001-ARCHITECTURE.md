@@ -20,20 +20,30 @@ The frontend is a React and TypeScript single-page application built with Vite a
 
 This application is expressly an unclassified public-Internet system. The UI requires acknowledgment of the unclassified-use notice before search-plan generation or execution.
 
-### 2. Use a narrow Cloudflare Worker only where a server secret is required
+### 2. Use a narrow fixed-adapter Cloudflare Worker
 
-The Cloudflare Worker exposes a health route and the NARA search route. `NARA_API_KEY` is installed through Wrangler secrets and is never returned, logged by application code, placed in a `VITE_` variable, or committed.
+The Cloudflare Worker exposes a health route and `/api/search/:sourceId` only for IDs in a checked-in adapter registry. It serves NARA Catalog, two NARA record-group profiles, GovInfo, NASA NTRS, and OSTI.GOV. `NARA_API_KEY` and `GOVINFO_API_KEY` are installed through Wrangler secrets when needed and are never returned, logged by application code, placed in a `VITE_` variable, or committed. NTRS and OSTI require no application source key but still use the Worker for fixed-upstream validation, CORS mediation, bounded execution, and consistent normalization.
 
 The Worker:
 
 - accepts bounded, runtime-validated JSON;
-- sends requests only to a fixed approved NARA host;
+- dispatches only registered source IDs and sends requests only to each adapter's fixed approved official API host;
 - restricts CORS to the production frontend and explicit development origins;
-- applies a request-size limit, timeout, bounded retry, and best-effort rate limit;
+- streams request bodies with a 16 KiB limit and upstream JSON responses with a
+  12,000,000-byte NARA limit or 5,000,000-byte GovInfo/NTRS/OSTI limit;
+- applies a timeout and best-effort rate limit; NARA alone retries one transient
+  upstream failure once;
 - normalizes errors and redacts common secret forms; and
 - sends no-store response headers.
 
 The Worker is not a general URL fetcher or scraping proxy.
+
+The browser does not trust normalized Worker output merely because it crossed
+that boundary. It runtime-validates the complete response and re-applies the
+selected source's source-identity, official-domain, result/file-URL,
+adapter-provenance, and source-specific record-ID binding rules before records
+enter the primary index. The Worker applies the same result admission rules
+before returning the response.
 
 ### 3. Apply NARA's no-cache/no-storage rule structurally
 
@@ -49,21 +59,36 @@ Therefore:
 
 This is an intentional exception to the general model in which raw source records are stored separately from normalized records.
 
+The same rule applies to the opt-in `nara-cia-rg263` and `nara-state-rg59` profiles because they are NARA Catalog API searches. Their separate source IDs prevent NARA-held records from being reported as native CIA or State FOIA results. Explicit returned hierarchy is checked before an RG-specific repository label is used: a conflict is rejected, while absent group data remains generic NARA evidence. NARA normalization examines at most 200 reported digital objects, 100,000 OCR characters per object, and 500,000 OCR characters total; it exposes only recognized direct public files on approved `archives.gov` hosts. These resource and file-path limits may truncate upstream content.
+
 ### 4. Search appropriate official datasets in the browser
 
 FRUS, ISCAP, and NDC use checked-in static indexes generated during controlled source-refresh operations. Runtime search occurs in the browser, avoiding brittle runtime scraping and allowing ordinary application CI and deployment to remain independent of government-site availability.
 
 The 1.0 FRUS index is explicitly partial: 752 documents from `frus1981-88v03`, `frus1981-88v05`, and `frus1981-88v06`, generated at pinned commit `56d9b6899758c7de95de58b48b20507a1edb9f9f`. No architecture or UI text may imply complete FRUS-series coverage.
 
-ISCAP and NDC indexes are labeled beta because their upstream table and workbook structures can change and because their entries do not necessarily represent item-level full releases.
+ISCAP and NDC indexes are labeled beta because their upstream table and workbook structures can change and because their entries do not necessarily represent item-level full releases. The current NDC schema-version-2 index contains 133 FY2026 Q3 entries; its builder identifies the canonical workbook header row rather than inferring a header from a data row.
 
-### 5. Prefer manual adapters to undocumented or prohibited automation
+### 5. Add documented public APIs only with corpus-specific caveats
+
+GovInfo, NASA NTRS, and OSTI.GOV are beta automated adapters with fixed official upstreams and recorded fixtures:
+
+- GovInfo requires server-side `GOVINFO_API_KEY` and provides official-publication discovery.
+- NTRS requires no application key and provides NASA scientific-and-technical-information discovery, not unified NASA FOIA coverage.
+- OSTI.GOV requires no application key and provides DOE-funded scientific-and-technical-information discovery, not DOE OpenNet coverage.
+
+None of these source types automatically establishes declassification, FOIA release, authenticity, completeness, or release in full.
+
+Their public file paths are admitted only when bound to the official record
+identifier: GovInfo package/granule, NTRS citation, or OSTI record ID.
+
+### 6. Prefer manual adapters to undocumented or prohibited automation
 
 Every source lives in a data-driven registry containing official domains, capability, terms and robots notes, method, filters, limitations, manual URL, status, and validation date.
 
-When a source lacks a stable permissible interface, Opstalia presents a first-class official manual-search link and accurately reports that no normalized automated results were returned. CIA is temporarily unavailable for automation in 1.0; many other sources are manual.
+When a source lacks a stable permissible interface, Opstalia presents a first-class official manual-search link and accurately reports that no normalized automated results were returned. The native CIA Reading Room remains temporarily unavailable, and native State FOIA remains manual. NARA RG 263 and RG 59 profiles are separate NARA Catalog sources and do not change those native statuses.
 
-### 6. Enforce official provenance before indexing evidence
+### 7. Enforce official provenance before indexing evidence
 
 Primary evidence is admitted only when:
 
@@ -73,7 +98,7 @@ Primary evidence is admitted only when:
 
 Outbound Worker URLs use a separate fixed-host SSRF allowlist. Unofficial mirrors, leaked or hacked material, media caches, personal sites, commercial or crowdsourced repositories, social-media uploads, and anonymous file hosts are excluded from primary evidence.
 
-### 7. Preserve data layers and researcher authority
+### 8. Preserve data layers and researcher authority
 
 The normalized TypeScript model records field values with source, extraction method, confidence, and optional researcher override. Raw permissible source records are kept separately from normalized records.
 
@@ -87,21 +112,21 @@ The UI and exports distinguish:
 
 Researcher overrides supplement rather than erase source provenance.
 
-### 8. Use deterministic, explainable analysis
+### 9. Use deterministic, explainable analysis
 
 Query expansion, result scoring, deduplication, version relationships, textual diffs, release-status rules, and release-marking detection are deterministic. The application exposes score factors and relationship reasons. No paid AI API is required, and no model is permitted to claim that it can determine classification.
 
 Release status uses a controlled vocabulary. `released_in_full` is assigned only from explicit official full-release language, official full-release metadata, or a documented researcher decision. A public object with no visible black box defaults to a cautious status.
 
-### 9. Keep ordinary CI offline and isolate source refresh
+### 10. Keep ordinary CI offline and isolate source refresh
 
-Lint, type, unit, integration, security, build, and browser tests use checked-in public fixtures and indexes. Ordinary pull-request CI does not require a NARA key or live government source.
+Lint, type, unit, integration, security, build, and browser tests use checked-in public fixtures and indexes. Ordinary pull-request CI does not require source API keys or live government sources.
 
 Index refreshes are explicit manual or scheduled operations. They validate upstream structure and minimum counts, record hashes or pinned commits, and produce reviewable generated-file diffs. Government-source downtime or schema drift must fail the refresh visibly without breaking unrelated builds or silently replacing a known-good index.
 
-Frontend deployment is independent of backend-secret readiness. A frontend build without `NARA_API_KEY` remains deployable and reports NARA as temporarily unavailable with a manual link; backend deployment occurs only after required secrets are installed.
+Frontend deployment is independent of Worker and source-secret readiness. Without a Worker URL, Worker-backed sources report setup status while static and manual workflows remain available. A deployed Worker is useful without source API keys because NTRS and OSTI require none; NARA and GovInfo report their respective missing-key states until configured.
 
-### 10. Do not connect to Opstalia-c
+### 11. Do not connect to Opstalia-c
 
 Opstalia 1.0 contains no synchronization code, connector, bridge, shared storage, automated transfer, or network route to **Opstalia-c**. Documentation of a possible future local analyst mode is design-only and disabled in the public build.
 
@@ -112,7 +137,8 @@ Any future closed-network relationship requires a new ADR, separate deployment a
 ### Benefits
 
 - Static hosting keeps the public application inexpensive, inspectable, and resilient.
-- The NARA key remains server-side without creating a general-purpose backend.
+- NARA and GovInfo keys remain server-side without creating a general-purpose backend.
+- The fixed Worker registry supports documented public APIs without becoming a user-directed fetch proxy.
 - Browser-local indexes allow fast federated searching without runtime scraping.
 - Manual adapters make coverage honest when automation is not supportable.
 - Registry-based allowlists and provenance make official-source admission auditable.
@@ -122,10 +148,11 @@ Any future closed-network relationship requires a new ADR, separate deployment a
 
 ### Tradeoffs
 
-- NARA search is unavailable until the Worker and secret are configured.
+- Worker-backed search is unavailable until a Worker URL is configured.
+- NARA and GovInfo are independently unavailable until their respective source keys are configured; NTRS and OSTI do not require source keys.
 - NARA results cannot be cached or fully restored from a saved project under current terms.
 - Static indexes become stale and require controlled refreshes.
-- The partial FRUS index and beta ISCAP/NDC indexes provide useful but non-exhaustive coverage.
+- The partial FRUS index and beta ISCAP/NDC/API adapters provide useful but non-exhaustive coverage.
 - Manual sources require researchers to leave Opstalia and record findings themselves.
 - Browser storage provides no cross-device synchronization, collaboration, or managed backup.
 - Deterministic matching and marking detection miss relationships that a human may recognize.
@@ -133,7 +160,7 @@ Any future closed-network relationship requires a new ADR, separate deployment a
 
 ## Alternatives considered
 
-### Put the NARA key in the frontend
+### Put source API keys in the frontend
 
 Rejected because every Vite frontend variable is recoverable by the public and network requests would expose the key.
 

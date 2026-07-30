@@ -1,6 +1,6 @@
 {
   "name": "opstalia",
-  "version": "1.0.1",
+  "version": "1.1.0",
   "private": true,
   "type": "module",
   "description": "OPSTALIA 1.0 — an independent, unclassified declassified-records search engine for official U.S. Government repositories.",
@@ -20,6 +20,9 @@
     "worker:dev": "wrangler dev --config worker/wrangler.toml",
     "worker:deploy": "wrangler deploy --config worker/wrangler.toml",
     "worker:secret": "wrangler secret put NARA_API_KEY --config worker/wrangler.toml",
+    "worker:secret:nara": "wrangler secret put NARA_API_KEY --config worker/wrangler.toml",
+    "worker:secret:govinfo": "wrangler secret put GOVINFO_API_KEY --config worker/wrangler.toml",
+    "worker:secret:rate-limit": "wrangler secret put RATE_LIMIT_SALT --config worker/wrangler.toml",
     "audit": "npm audit --audit-level=high",
     "secret:scan": "node scripts/secret-scan.mjs",
     "indexes:frus": "node scripts/build-frus-index.mjs",

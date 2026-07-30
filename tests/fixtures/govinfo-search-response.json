@@ -1,0 +1,28 @@
+{
+  "count": 1022106,
+  "offsetMark": "AoIIP//JRDtGUi0yMDI2LTA3LTI5LUMxLTIwMjYtMTMxMjQ=",
+  "results": [
+    {
+      "title": "Allocation of Assets in Single-Employer Plans; Interest Assumptions for Valuing Benefits",
+      "packageId": "FR-2026-07-29",
+      "granuleId": "C1-2026-13124",
+      "lastModified": "2026-07-29T10:39:16Z",
+      "governmentAuthor": [
+        "National Archives and Records Administration",
+        "Office of the Federal Register"
+      ],
+      "dateIssued": "2026-07-29",
+      "collectionCode": "FR",
+      "dateIngested": "2026-07-29",
+      "download": {
+        "premisLink": "https://api.govinfo.gov/packages/FR-2026-07-29/premis",
+        "txtLink": "https://api.govinfo.gov/packages/FR-2026-07-29/granules/C1-2026-13124/htm",
+        "zipLink": "https://api.govinfo.gov/packages/FR-2026-07-29/zip",
+        "modsLink": "https://api.govinfo.gov/packages/FR-2026-07-29/granules/C1-2026-13124/mods",
+        "pdfLink": "https://api.govinfo.gov/packages/FR-2026-07-29/granules/C1-2026-13124/pdf"
+      },
+      "relatedLink": "https://api.govinfo.gov/related/C1-2026-13124",
+      "resultLink": "https://api.govinfo.gov/packages/FR-2026-07-29/granules/C1-2026-13124/summary"
+    }
+  ]
+}

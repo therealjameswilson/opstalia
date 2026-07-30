@@ -2,9 +2,28 @@
 
 All notable changes to Opstalia are documented in this file. The project follows [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
+## [1.1.0] - 2026-07-29
 
-No unreleased changes are recorded.
+### Added
+
+- Separate beta NARA Catalog discovery profiles for available-online textual records in CIA Record Group 263 and Department of State Record Group 59. These are NARA-held-record searches and do not represent native CIA or State FOIA reading-room coverage.
+- Beta Cloudflare Worker adapters for GovInfo Search Service, NASA Technical Reports Server, and OSTI.GOV using documented fixed upstreams and recorded official fixtures.
+- Server-side `GOVINFO_API_KEY` readiness reporting and setup commands; NTRS and OSTI require no application API secret.
+
+### Changed
+
+- Replaced single-route Worker dispatch with a fixed source-adapter registry while retaining request validation, CORS, timeout, rate-limit, no-store, and error-redaction controls.
+- Made the RG 263 and RG 59 profiles explicit opt-ins, verified returned hierarchy before using an RG-specific label, rejected explicit conflicts, and retained generic NARA provenance when the hierarchy does not expose a record-group number.
+- Preserved successful per-source query results when a later query fails and made query-to-source targeting literal.
+- Corrected the FY2026 Q3 NDC workbook parser to identify the canonical header row, retain the workbook's first data entries, and emit schema version 2 with 133 entries instead of the erroneous 121-row parse.
+- Qualified GovInfo, NTRS, and OSTI results as official publication or scientific-and-technical-information discovery, not automatic evidence of declassification, FOIA release, or release in full.
+
+### Security
+
+- Kept `NARA_API_KEY` and `GOVINFO_API_KEY` server-side and outside frontend variables, fixtures, logs, and responses.
+- Preserved native CIA as unavailable/manual and State FOIA as manual; the new NARA record-group profiles have separate source IDs, provenance, and explicit non-equivalence warnings.
+- Continued transient, locator-only persistence for NARA API results, including the new record-group profiles.
+- Added streaming request and upstream-response byte limits, Worker and browser response validation, record-bound file URL checks, bounded rate-limit state, and GovInfo/rate-salt secret scanning.
 
 ## [1.0.1] - 2026-07-29
 

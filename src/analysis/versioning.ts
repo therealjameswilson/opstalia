@@ -129,13 +129,33 @@ export function groupVersions(records: NormalizedRecord[]): VersionGroup[] {
 export function deduplicateRecords(records: NormalizedRecord[]): NormalizedRecord[] {
   const seen = new Map<string, NormalizedRecord>();
   for (const record of records) {
+    const sourceFamily =
+      record.naraNaid?.value &&
+      record.provenance.officialDomain.toLocaleLowerCase() === "catalog.archives.gov"
+        ? "nara-catalog"
+        : record.provenance.sourceId;
     const key = [
-      record.provenance.sourceId,
+      sourceFamily,
       raw(record.documentNumber) ?? raw(record.naraNaid) ?? "",
       record.provenance.officialRecordUrl
     ].join("|");
     const current = seen.get(key);
-    if (!current || record.confidenceScore > current.confidenceScore) seen.set(key, record);
+    const replacesGenericNara =
+      current?.provenance.sourceId === "nara" &&
+      record.provenance.sourceId.startsWith("nara-") &&
+      raw(record.sourceRepository) !== "National Archives Catalog";
+    const replacesUnverifiedProfile =
+      current?.provenance.sourceId.startsWith("nara-") &&
+      raw(current.sourceRepository) === "National Archives Catalog" &&
+      record.provenance.sourceId === "nara";
+    if (
+      !current ||
+      record.confidenceScore > current.confidenceScore ||
+      replacesGenericNara ||
+      replacesUnverifiedProfile
+    ) {
+      seen.set(key, record);
+    }
   }
   return [...seen.values()];
 }

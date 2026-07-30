@@ -39,9 +39,49 @@ test.describe("Opstalia research workflows", () => {
     await page.getByRole("button", { name: "Run adapters and prepare handoffs" }).click();
     const progress = page.getByRole("region", { name: "Source progress" }).or(page.locator(".source-progress"));
     await expect(progress.getByText("National Archives Catalog")).toBeVisible({ timeout: 30_000 });
-    await expect(progress.getByText("production Worker URL is not configured")).toBeVisible();
+    const unavailableWorkerRuns = progress.getByText("production Worker URL is not configured");
+    await expect(unavailableWorkerRuns.first()).toBeVisible();
+    await expect(unavailableWorkerRuns).toHaveCount(1);
     await expect(progress.getByText("Office of the Historian / FRUS")).toBeVisible();
     await expect(page.getByRole("heading", { name: /\d+ of \d+ results/ })).toBeVisible({ timeout: 30_000 });
+  });
+
+  test("keeps scoped NARA CIA and State discovery profiles explicit opt-ins", async ({ page }) => {
+    await page.goto("./#new-search");
+    await page.getByLabel(/I acknowledge/).check();
+    await page.getByRole("tab", { name: "Quick search" }).click();
+    await page.getByLabel("Unclassified metadata and keywords").fill("Malta Summit");
+    await page.getByRole("button", { name: "Build search plan" }).click();
+
+    const ciaProfile = page.getByRole("checkbox", {
+      name: /CIA records held by NARA/
+    });
+    const stateProfile = page.getByRole("checkbox", {
+      name: /Department of State records held by NARA/
+    });
+    await expect(ciaProfile).not.toBeChecked();
+    await expect(stateProfile).not.toBeChecked();
+    await ciaProfile.check();
+    await stateProfile.check();
+    await expect(ciaProfile).toBeChecked();
+    await expect(stateProfile).toBeChecked();
+    await page
+      .getByRole("button", { name: "Run adapters and prepare handoffs" })
+      .click();
+    const progress = page
+      .getByRole("region", { name: "Source progress" })
+      .or(page.locator(".source-progress"));
+    await expect(
+      progress.getByText("CIA records held by NARA — Catalog RG 263")
+    ).toBeVisible();
+    await expect(
+      progress.getByText(
+        "Department of State records held by NARA — Catalog RG 59"
+      )
+    ).toBeVisible();
+    await expect(
+      progress.getByText("production Worker URL is not configured")
+    ).toHaveCount(3);
   });
 
   test("prepares honest State and CIA handoffs without treating either as zero-result search", async ({ page }) => {

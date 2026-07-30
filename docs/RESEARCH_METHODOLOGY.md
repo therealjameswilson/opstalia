@@ -50,14 +50,23 @@ Deterministic expansion is intentionally transparent. It is not semantic AI sear
 
 Use the source-coverage dashboard, which records integration status, implementation method, filters, terms constraints, limitations, manual fallback, and validation date.
 
-The version 1.0 automated paths are:
+The current automated paths are:
 
 - **NARA Catalog:** live API search through the secret-backed Worker;
+- **NARA RG 263 and RG 59 profiles:** opt-in, fixed-filter NARA Catalog
+  searches through the same Worker and NARA key;
+- **GovInfo:** opt-in official-publication search through the Worker and a
+  server-side GovInfo key;
+- **NASA NTRS and OSTI.GOV:** opt-in public scientific-and-technical-information
+  search through the Worker without an Opstalia source API key;
 - **FRUS:** browser-local search of a pinned partial index;
 - **ISCAP:** browser-local search of a pinned beta releases-table index; and
 - **NDC:** browser-local search of a pinned beta release-list index.
 
-Other registered repositories use manual links unless their coverage entry says otherwise. “Manual” means that Opstalia does not normalize results from that system; it does not mean the source was searched automatically.
+Other registered repositories use manual links or remain planned unless their
+coverage entry says otherwise. “Manual” means that Opstalia does not normalize
+results from that system; it does not mean the source was searched
+automatically.
 
 The FRUS scope must be reported precisely. The checked-in 1.0 index contains 752 documents from `frus1981-88v03`, `frus1981-88v05`, and `frus1981-88v06`, built from pinned commit `56d9b6899758c7de95de58b48b20507a1edb9f9f`. It is not a search of the complete FRUS series.
 
@@ -68,6 +77,12 @@ A result enters the primary index only when it has:
 - an HTTPS URL on the configured official-domain allowlist for that source;
 - provenance from the matching registered adapter; and
 - an official record-page or file URL.
+
+All returned record and file URLs must pass the source allowlist. GovInfo PDF,
+NTRS download, and OSTI full-text paths must also bind to the package/granule,
+citation, or OSTI identifier on the official record page. NARA exposes a
+digital-object link only for a recognized direct public file on an approved
+`archives.gov` host.
 
 Opstalia 1.0 excludes leaked-document sites, unofficial mirrors, news-media caches, commercial or crowdsourced archives, personal sites, anonymous hosts, social-media uploads, and unofficial GitHub copies as release evidence.
 

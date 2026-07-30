@@ -248,9 +248,17 @@ interface ProvenanceRecord {
 Primary-result admission verifies that:
 
 - the source is registered;
-- `adapterId` matches the source;
+- the route, source run, raw record, `sourceId`, and `adapterId` retain the
+  selected source identity;
 - the official URL uses a registered HTTPS domain; and
-- the provenance contains an official record or file URL.
+- the provenance contains an official record or file URL;
+- every returned record-page, download, thumbnail, and digital-object URL
+  remains on an approved HTTPS domain; and
+- GovInfo, NTRS, and OSTI file paths bind to the official package/granule,
+  citation, or OSTI record ID.
+
+For NARA, a digital-object locator is included only for a recognized direct
+public file on an approved `archives.gov` host.
 
 Fixture provenance is visibly labeled and still must pass the same source-domain policy.
 
@@ -290,7 +298,8 @@ Project JSON is labeled `opstalia-project-1.0`. Import:
 - deeply validates nested record, provenance, relationship, review, and project
   structures as well as collection-size bounds;
 - creates a new imported project ID;
-- checks source identifiers and all result/file URLs against the registry;
+- checks source identifiers and all result/file URLs against the registry,
+  including GovInfo/NTRS/OSTI file-to-record ID binding;
 - clears fixture claims and marks imported provenance as not revalidated;
 - rejects a mismatch between the displayed target and the search-plan target;
 - regenerates manual handoff terms, filters, URLs, and current availability from
@@ -312,9 +321,12 @@ Markdown reports separate source facts, extraction, inference, unknown informati
 Zod validates:
 
 - guided and quick search targets;
-- Worker NARA request bodies; and
+- every Worker search request and response;
 - imported project envelopes and collection limits.
 
-The Worker also enforces content type, a 16 KB request-body limit, query length, source-ID count, cursor length, and result limit.
+The Worker also enforces JSON content type, a streamed 16 KB request-body
+limit, query length, source-ID count, cursor length, and result limit. Upstream
+JSON must be valid UTF-8 and is streamed with a 12,000,000-byte NARA cap or a
+5,000,000-byte GovInfo/NTRS/OSTI cap.
 
 TypeScript strict mode protects internal compile-time contracts. Runtime schemas remain the authority at trust boundaries.

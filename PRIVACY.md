@@ -25,13 +25,13 @@ design concept in
                          public static assets and pinned indexes
 Your browser  <------------------------------------------------ GitHub Pages
      |
-     | selected unclassified NARA target + one plan query (HTTPS POST)
+     | selected unclassified Worker-source target + one plan query (HTTPS POST)
      v
 Cloudflare Worker
      |
-     | q, limit, API key, and supported NARA filters (HTTPS GET)
+     | documented source-specific request; source key only for NARA or GovInfo
      v
-NARA Catalog API
+Selected official API: NARA Catalog, GovInfo, NASA NTRS, or OSTI.GOV
 
 Your browser -- user-initiated navigation, including prepared terms when shown --> selected official website
                                                                                   and its service providers
@@ -50,15 +50,17 @@ the researcher copies or retries them. No manual source opens automatically.
 | --- | --- | --- |
 | Load Opstalia | GitHub Pages | Ordinary web-request data for HTML, JavaScript, CSS, and pinned public indexes, including network metadata made available to the host |
 | Search FRUS, ISCAP, or NDC | No runtime search service | The query is evaluated in page memory against a static index already delivered by GitHub Pages |
-| Search NARA | Cloudflare Worker | A validated search object containing the unclassified target metadata except research notes, one generated or edited query, limit/cursor if present, and the private-mode flag |
+| Search NARA, a NARA record-group profile, GovInfo, NTRS, or OSTI | Cloudflare Worker | A validated search object containing the unclassified target metadata except research notes, one generated or edited query, limit/cursor if present, and the private-mode flag |
 | Worker searches NARA | NARA Catalog API | Query text, limit, API credential, and supported filters such as NAID, dates, title, creator, geography, and material type |
+| Worker searches GovInfo | GovInfo Search Service | Query text, page size/cursor, sort, and the server-side GovInfo API credential |
+| Worker searches NTRS or OSTI | NASA NTRS or OSTI.GOV | Query text and supported source-specific metadata filters; no Opstalia source API key |
 | Open a manual handoff | Selected official repository and service providers used by that site | Normal browser request data and any prepared search terms/filters included in the displayed official URL; local research notes are excluded |
 | Open or compare an official file | Selected official repository | Normal navigation or embedded-view request data, including the requested official URL |
 | Export a project/report | User-selected local destination | The generated file is created in the browser; subsequent cloud sync, email, or transfer is controlled by the user and their device |
 
 The client explicitly removes the target's research-notes field before
-serializing a live NARA request. The field therefore reaches neither the Worker
-nor NARA. Research notes remain subject to the unclassified-only rule because
+serializing any live Worker request. The field therefore reaches neither the Worker
+nor the selected official API. Research notes remain subject to the unclassified-only rule because
 they can be stored locally and included in user-created project/report exports.
 
 URL fragments used for shareable searches are not part of an HTTP request to
@@ -73,7 +75,7 @@ For non-private projects, Opstalia stores the following in the browser's
 namespaced IndexedDB database:
 
 - search targets and editable search plans;
-- source-run status, prepared manual handoffs, and public indexed results;
+- source-run status, prepared manual handoffs, public indexed results, and permissible public GovInfo/NTRS/OSTI source records;
 - generated source locators;
 - saved-record selections;
 - comparison and version-group decisions;
@@ -108,7 +110,7 @@ content must not be cached or stored. Opstalia applies that rule as follows:
 - the Worker disables the Cloudflare cache for the upstream request;
 - no KV, D1, Durable Object, or other backend persistence is configured;
 - application code does not log NARA bodies or full queries;
-- raw NARA records are not included in the Worker response;
+- raw NARA records—including RG 263/RG 59 profile records—are not included in the Worker response;
 - live normalized NARA data is held only in the active page's memory; and
 - persistence reduces a NARA result to a generated NAID/official-URL locator
   plus researcher-created review information.
@@ -117,12 +119,13 @@ Project JSON, Markdown, CSV, printable HTML, and copied reports apply the same
 locator sanitizer before output. An exported NARA hit therefore contains the
 generated locator and researcher-created review data rather than the live API
 metadata. The official record can always be revisited through the saved NARA
-URL. The canonical technical policy is recorded in the `nara` entry of
+URL. The canonical technical policy is recorded in the `nara`,
+`nara-cia-rg263`, and `nara-state-rg59` entries of
 [`data/sources.json`](data/sources.json).
 
 ## Cloudflare Worker processing
 
-For a NARA search, Cloudflare receives the HTTPS request and its ordinary
+For any Worker-backed search, Cloudflare receives the HTTPS request and its ordinary
 network metadata. The Worker:
 
 - validates the origin, content type, body size, and request schema;
@@ -131,8 +134,13 @@ network metadata. The Worker:
 - keeps that key and minute counter in ephemeral Worker-isolate memory;
 - does not write it to an Opstalia log or durable store;
 - does not log the request body, full query, authorization data, or IP address;
-- adds the secret API key only to the outbound NARA request; and
+- adds `NARA_API_KEY` only to NARA requests and `GOVINFO_API_KEY` only to GovInfo requests; NTRS and OSTI requests use no Opstalia source key; and
 - returns a `no-store` response.
+
+The Worker does not persist source responses. NARA responses are additionally
+excluded from browser persistence and exports except for generated
+NAID/official-URL locators. Permissible public GovInfo, NTRS, and OSTI response
+records may be stored in a non-private browser project for provenance.
 
 Cloudflare may process or retain infrastructure and security telemetry under
 its own policies. Disabling Worker observability and application logging does
@@ -145,13 +153,13 @@ Private mode:
 - prevents the active project from being saved to IndexedDB;
 - prevents Opstalia search-history persistence;
 - avoids creating a shareable search fragment;
-- uses `no-store` for live NARA requests; and
+- uses `no-store` for live Worker requests; and
 - keeps active project state in memory so reload or tab close discards it.
 
 Private mode does **not**:
 
 - anonymize a user or query;
-- stop a selected live query from reaching Cloudflare and NARA;
+- stop a selected live query from reaching Cloudflare and the selected official API;
 - stop normal requests to GitHub Pages or a manually opened official site;
 - prevent network, browser, extension, operating-system, or enterprise
   monitoring;
@@ -163,7 +171,7 @@ Private mode does **not**:
 
 Opstalia application code does not intentionally record full queries, request
 bodies, API keys, authorization headers, or IP addresses. GitHub, Cloudflare,
-NARA, other official repositories, and service providers loaded by those
+NARA, GovInfo, NASA NTRS, OSTI.GOV, other official repositories, and service providers loaded by those
 repositories are independent operators and may receive request URLs or
 maintain access, analytics, security, or operational logs under their own
 policies. Opstalia does not control their telemetry, retention, or legal

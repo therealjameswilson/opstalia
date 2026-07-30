@@ -2,17 +2,31 @@ const SECRET_PATTERNS = [
   /x-api-key\s*[:=]\s*[^\s,;]+/gi,
   /authorization\s*[:=]\s*(?:bearer\s+)?[^\s,;]+/gi,
   /NARA_API_KEY\s*[:=]\s*[^\s,;]+/gi,
-  /CF_API_TOKEN\s*[:=]\s*[^\s,;]+/gi
+  /GOVINFO_API_KEY\s*[:=]\s*[^\s,;]+/gi,
+  /(?:CF_API_TOKEN|CLOUDFLARE_API_TOKEN)\s*[:=]\s*[^\s,;]+/gi,
+  /RATE_LIMIT_SALT\s*[:=]\s*[^\s,;]+/gi,
+  /([?&]api_key=)[^&\s]+/gi
 ];
 
 export function redactSecrets(value: unknown): string {
   let text: string;
   try {
-    text = typeof value === "string" ? value : JSON.stringify(value);
+    text =
+      value instanceof Error
+        ? value.message
+        : typeof value === "string"
+          ? value
+          : JSON.stringify(value);
   } catch {
     text = String(value);
   }
-  return SECRET_PATTERNS.reduce((current, pattern) => current.replace(pattern, "[REDACTED]"), text);
+  return SECRET_PATTERNS.reduce(
+    (current, pattern) =>
+      current.replace(pattern, (...match) =>
+        typeof match[1] === "string" ? `${match[1]}[REDACTED]` : "[REDACTED]"
+      ),
+    text
+  );
 }
 
 export function normalizeError(error: unknown): { code: string; message: string } {

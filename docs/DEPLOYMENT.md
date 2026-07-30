@@ -3,10 +3,10 @@
 ## Deployment architecture
 
 - **Frontend:** GitHub Pages at the `/opstalia/` project path
-- **Backend:** Cloudflare Worker containing the live NARA adapter
+- **Backend:** Cloudflare Worker containing the fixed live adapter registry
 - **Local research storage:** browser IndexedDB
 - **Backend storage:** none
-- **NARA cache:** none
+- **Upstream response cache:** none
 
 Frontend target:
 
@@ -21,7 +21,8 @@ The backend URL is assigned by Cloudflare during deployment. Do not guess it fro
 - GitHub CLI authenticated as an account with access to `therealjameswilson/opstalia`
 - Cloudflare account
 - Wrangler authenticated to that account
-- NARA Catalog API key
+- NARA Catalog API key if NARA or either NARA record-group profile should run
+- GovInfo API key if GovInfo search should run
 
 Install dependencies:
 
@@ -51,28 +52,30 @@ Expected GitHub target: `therealjameswilson/opstalia`. Never force-push.
 |---|---|---:|---|
 | `VITE_API_BASE` | GitHub Actions repository variable or local `.env.local` | No | Public verified Worker base URL compiled into the frontend |
 | `NARA_API_KEY` | Cloudflare Worker secret | Yes | NARA Catalog API authentication |
+| `GOVINFO_API_KEY` | Cloudflare Worker secret | Yes | GovInfo Search Service authentication |
 | `RATE_LIMIT_SALT` | Cloudflare Worker secret | Yes | Salt for ephemeral hashed rate-limit keys |
 | `FRONTEND_ORIGIN` | `worker/wrangler.toml` non-secret variable | No | Exact allowed browser origin |
 | `APP_ENV` | `worker/wrangler.toml` non-secret variable | No | Enables production origin policy |
 | `CLOUDFLARE_API_TOKEN` | GitHub Actions secret, only for automated Worker deploy | Yes | Scoped Worker deployment credential |
 | `CLOUDFLARE_ACCOUNT_ID` | GitHub Actions secret, only for automated Worker deploy | Yes | Cloudflare account selector |
 
-`VITE_API_BASE` is public by design. No value beginning with `VITE_` may contain `NARA_API_KEY` or another credential.
+`VITE_API_BASE` is public by design. No value beginning with `VITE_` may contain `NARA_API_KEY`, `GOVINFO_API_KEY`, or another credential.
 
 For GitHub Pages, the workflow uses GitHub’s short-lived `GITHUB_TOKEN`; no custom Pages secret is needed. The Worker deployment secrets are independent of Pages.
 
 ## Local verification
 
-The three static indexes need no API key:
+The three static indexes need no Worker or API key:
 
 ```bash
 npm run dev
 ```
 
-For live local NARA testing, create the ignored file `worker/.dev.vars`:
+For local Worker testing, create the ignored file `worker/.dev.vars`. Include only the source keys you intend to test:
 
 ```dotenv
 NARA_API_KEY=replace-with-your-local-development-key
+GOVINFO_API_KEY=replace-with-your-local-development-key
 RATE_LIMIT_SALT=replace-with-a-random-local-value
 FRONTEND_ORIGIN=http://localhost:5173
 APP_ENV=development
@@ -102,7 +105,7 @@ Check the local Worker without exposing the secret:
 curl --fail --silent http://127.0.0.1:8787/api/health
 ```
 
-The response may state `naraSecretConfigured: true`; it must never contain the key.
+The response reports public service metadata, registered adapter IDs, and Boolean `naraSecretConfigured` and `govInfoSecretConfigured` values; it must never contain either key. The Worker can be ready and useful with both values false because NTRS and OSTI require no application source secret.
 
 ## Deploy the Cloudflare Worker
 
@@ -124,7 +127,7 @@ An HTTP `Origin` contains no path, so the allowed origin is the GitHub Pages hos
 npm run worker:deploy
 ```
 
-At this moment the health endpoint can be reachable but report `ready: false`. That is expected until the secret is installed.
+At this moment the health endpoint can be reachable with `ready: true` while source-key Booleans remain false. `ready` means the Worker registry is reachable, not that every adapter's optional prerequisite is configured.
 
 ### 3. Install secrets
 
@@ -134,13 +137,19 @@ Install the NARA key directly into Cloudflare:
 npx wrangler secret put NARA_API_KEY --config worker/wrangler.toml
 ```
 
+Install the GovInfo key if GovInfo should run:
+
+```bash
+npx wrangler secret put GOVINFO_API_KEY --config worker/wrangler.toml
+```
+
 Install a random production rate-limit salt:
 
 ```bash
 npx wrangler secret put RATE_LIMIT_SALT --config worker/wrangler.toml
 ```
 
-Both commands prompt for their values. Do not put values in shell history, `.env.example`, documentation, screenshots, GitHub Actions output, or repository files.
+These commands prompt for their values. Do not put values in shell history, `.env.example`, documentation, screenshots, GitHub Actions output, or repository files.
 
 Cloudflare documents that `wrangler secret put` creates and immediately deploys a Worker version containing the updated secret; subsequent code deployments preserve secrets unless they are explicitly deleted. See [Cloudflare Workers secrets](https://developers.cloudflare.com/workers/configuration/secrets/).
 
@@ -160,11 +169,19 @@ Expected properties:
   "ready": true,
   "service": "opstalia-api",
   "naraSecretConfigured": true,
-  "storagePolicy": "NARA responses are not cached or stored"
+  "govInfoSecretConfigured": true,
+  "registeredAdapters": [
+    "nara",
+    "nara-cia-rg263",
+    "nara-state-rg59",
+    "govinfo",
+    "nasa-ntrs",
+    "osti-sti"
+  ]
 }
 ```
 
-Do not record a backend URL in release notes until this check succeeds.
+Either source-secret Boolean may legitimately be false when that keyed adapter is intentionally disabled. Do not record a backend URL in release notes until the endpoint and intended adapter readiness have been verified.
 
 ### 5. Verify CORS
 
@@ -218,11 +235,11 @@ In repository settings:
 2. Under **Build and deployment**, select **GitHub Actions**.
 3. Keep the public base path `/opstalia/`; `vite.config.ts` already builds for it.
 
-The frontend workflow should pass `vars.VITE_API_BASE` into the Vite build. If the variable is missing, it should pass an empty value rather than fail. This preserves a deployable static site whose NARA panel reports setup status while FRUS, ISCAP, NDC, and manual adapters remain available.
+The frontend workflow should pass `vars.VITE_API_BASE` into the Vite build. If the variable is missing, it should pass an empty value rather than fail. This preserves a deployable static site whose Worker-backed sources report setup status while FRUS, ISCAP, NDC, and manual adapters remain available.
 
 ### Optional automated Worker deployment
 
-The safest first deployment is the local Wrangler procedure above because it installs `NARA_API_KEY` directly in Cloudflare.
+The safest first deployment is the local Wrangler procedure above because source API keys are installed directly in Cloudflare rather than passed through GitHub.
 
 If the repository’s backend workflow is enabled, create a Cloudflare API token scoped only to the target account and Workers deployment. Add the deployment credentials interactively:
 
@@ -236,7 +253,7 @@ gh secret set CLOUDFLARE_ACCOUNT_ID \
   --repo therealjameswilson/opstalia
 ```
 
-Do **not** add `NARA_API_KEY` as a GitHub secret for routine deployment. Wrangler retains Worker secrets independently across code deployments. The backend workflow should skip or report “not ready” when Cloudflare deployment credentials are absent; it must not break the frontend Pages workflow.
+Do **not** add `NARA_API_KEY` or `GOVINFO_API_KEY` as GitHub secrets for routine deployment. Wrangler retains Worker secrets independently across code deployments. The backend workflow validates only Cloudflare deployment credentials; it does not read, print, or replace source API secrets, and it must not break the frontend Pages workflow.
 
 ## Pre-deployment quality gate
 
@@ -255,10 +272,10 @@ Inspect the production build:
 
 ```bash
 VITE_API_BASE="https://VERIFIED-WORKER-URL" npm run build
-rg -n "NARA_API_KEY|x-api-key" dist
+rg -n "NARA_API_KEY|GOVINFO_API_KEY|x-api-key" dist
 ```
 
-The second command must not reveal a secret value. The literal string `NARA_API_KEY` may appear in user-facing setup or security copy; no actual credential may appear.
+The second command must not reveal a secret value. Secret names may appear in user-facing setup or security copy; no actual credential may appear.
 
 Also confirm:
 
@@ -266,9 +283,12 @@ Also confirm:
 - the header and search acknowledgement contain the unclassified warning;
 - the site says it is independent and not an official Government site;
 - no UI asks for a classified document;
-- the source dashboard reports 30 sources with the current status counts;
-- the FRUS, ISCAP, and NDC counts remain 752, 529, and 121;
-- the NARA Worker sends `Cache-Control: no-store`; and
+- the source dashboard reports 34 sources: 2 integrated, 7 beta, 20 manual, 1 temporarily unavailable, and 4 planned;
+- the FRUS, ISCAP, and NDC counts remain 752, 529, and 133;
+- Worker and upstream API requests use the intended no-store policy;
+- native CIA and State remain manual/unavailable, while the separate opt-in NARA RG 263/RG 59 profiles are labeled as NARA-only discovery;
+- streamed request/response limits and source-specific file-to-record ID checks pass their security tests;
+- GovInfo, NTRS, and OSTI carry their publication/STI—not declassification-proof—caveats; and
 - the application states that Opstalia-c is not connected.
 
 ## Publish
@@ -278,7 +298,7 @@ After review:
 ```bash
 git status --short
 git add .
-git commit -m "Release Opstalia 1.0"
+git commit -m "Release Opstalia 1.1.0"
 git push origin main
 ```
 
@@ -302,12 +322,14 @@ Then verify in a browser:
 2. the independent-site and unclassified notices are visible;
 3. a search cannot proceed without acknowledgement;
 4. FRUS, ISCAP, and NDC return local-index results for known fixture terms;
-5. Worker health reports ready;
-6. an exact NARA NAID search produces a transient official result;
-7. CIA and State are clearly manual, not automated;
-8. an unofficial-domain fixture is rejected;
-9. project save, export, import, comparison, and private mode work; and
-10. the browser network panel contains no `NARA_API_KEY`.
+5. Worker health reports version `1.1.0`, the registered adapters, and only Boolean secret readiness;
+6. when `NARA_API_KEY` is installed, an exact general-NARA NAID search produces a transient official result; after explicitly opting into each RG profile, its results remain visibly NARA-only;
+7. when `GOVINFO_API_KEY` is installed, GovInfo runs without implying declassification evidence;
+8. NTRS and OSTI run through the Worker without a source API key and retain their STI/publication caveats;
+9. native CIA and State are clearly manual/unavailable, not automated;
+10. an unofficial-domain fixture is rejected;
+11. project save, export, import, comparison, and private mode work; and
+12. the browser network panel contains no source API key.
 
 Run a remote bundle check:
 
@@ -315,14 +337,14 @@ Run a remote bundle check:
 curl --fail --silent \
   https://therealjameswilson.github.io/opstalia/ \
   -o /tmp/opstalia-index.html
-rg -n "NARA_API_KEY|x-api-key" /tmp/opstalia-index.html
+rg -n "NARA_API_KEY|GOVINFO_API_KEY|x-api-key" /tmp/opstalia-index.html
 ```
 
 No secret value may appear. Inspect referenced JavaScript assets as part of the release verification when recording the final commit.
 
 ## Failure modes
 
-### Frontend is live but NARA says setup is required
+### Frontend is live but Worker-backed sources say setup is required
 
 Check, in order:
 
@@ -330,7 +352,8 @@ Check, in order:
 2. the frontend workflow rebuilt after the variable was set;
 3. the URL has no trailing `/api` path;
 4. `/api/health` is reachable; and
-5. `naraSecretConfigured` is true.
+5. `/api/health` lists the expected adapter; and
+6. the selected keyed adapter's readiness Boolean is true when that adapter should be enabled.
 
 ### Worker is reachable but CORS fails
 
@@ -338,7 +361,11 @@ Confirm `FRONTEND_ORIGIN` is exactly `https://therealjameswilson.github.io`, the
 
 ### NARA returns 429
 
-Wait for the upstream or local rate window. Do not bypass rate controls. Opstalia limits NARA to the first three enabled plan queries per run.
+Wait for the upstream or local rate window. Do not bypass rate controls. Opstalia limits each NARA source run to the first three enabled queries that explicitly name that source ID. An empty source-ID list targets no source.
+
+### GovInfo reports a missing key
+
+Install `GOVINFO_API_KEY` directly in Cloudflare, verify only the Boolean readiness field, and retry. Do not put the key in GitHub Actions variables or frontend configuration.
 
 ### One source fails
 

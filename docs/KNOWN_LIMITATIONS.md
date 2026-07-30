@@ -31,9 +31,24 @@ NARA's [Catalog API terms](https://www.archives.gov/research/catalog/help/api) c
 - a saved NARA result is reduced to a generated NAID/official-URL locator plus researcher-created review data; and
 - reopening a saved locator does not reproduce the earlier API metadata without a new live search.
 
-The orchestrator runs at most three generated NARA queries per source run, with up to 20 results per query in the current UI. This bounds API use but can omit lower-ranked or differently phrased Catalog hits. Catalog digitization metadata is not proof of declassification or full release.
+The orchestrator runs at most three generated NARA queries per source run, with up to 20 results per query in the current UI. NARA normalization also accepts at most 200 digital objects per record, 100,000 OCR characters per object, and 500,000 OCR characters across the record. These controls bound quota and payload work but can omit lower-ranked hits, additional objects, or OCR; they are not completeness claims. Catalog digitization metadata is not proof of declassification or full release.
 
 The Worker's rate limiter is best-effort and isolate-local; it is not a globally durable quota service. NARA's own per-key limit remains controlling.
+
+The optional `nara-cia-rg263` and `nara-state-rg59` beta profiles use this same API and persistence boundary. They send fixed available-online textual filters for RG 263 and RG 59 respectively. Explicit returned hierarchy must agree before Opstalia applies an RG-specific repository label; a hit with no returned group number remains generic NARA evidence and requires review. They do not search the native CIA or State FOIA reading rooms, do not include every agency-related record, and do not establish that a result was released through a particular mechanism. The RG 59 profile also excludes separate RG 84 Foreign Service Post holdings.
+
+### GovInfo
+
+GovInfo search requires a configured Worker and server-side `GOVINFO_API_KEY`. The Search Service is a documented public-preview interface and can change. GovInfo supplies official publications and reproduced government documents, but publication there is not automatically evidence that an originating agency declassified the underlying record, released it under FOIA, or released it in full.
+
+### NASA Technical Reports Server and OSTI.GOV
+
+NTRS and OSTI use documented public APIs and need no application source key, but they still require the configured Worker because the frontend does not call their upstreams directly. These are official scientific-and-technical-information discovery sources:
+
+- NTRS is not a unified NASA FOIA reading room or a substitute for decentralized NASA FOIA e-libraries.
+- OSTI.GOV public STI is not DOE OpenNet, and the adapter does not automate OpenNet's robots-disallowed search or document paths.
+
+Public availability in either corpus does not establish declassification, FOIA release, completeness, authenticity, or release in full.
 
 ### Office of the Historian / FRUS
 
@@ -55,13 +70,13 @@ The checked-in beta index contains 529 objects parsed from the official ISCAP re
 
 ### National Declassification Center
 
-The checked-in beta index contains 121 rows from the FY2026 Q3 NDC release list. These are generally project-, series-, or finding-aid-level descriptions, not item-level document releases. Completion of declassification processing does not establish online availability, unrestricted access, digitization, or release in full.
+The checked-in schema-version-2 beta index contains 133 entries from the FY2026 Q3 NDC release list. Its corrected builder identifies the canonical workbook header row and retains the first data entries. These are generally project-, series-, or finding-aid-level descriptions, not item-level document releases. Completion of declassification processing does not establish online availability, unrestricted access, digitization, or release in full.
 
 ## Manual and unavailable sources
 
-CIA is marked temporarily unavailable. At validation, the official Reading Room self-redirected and CIA.gov reported that search was unavailable. Opstalia can prepare copyable terms and provide official CIA resources/status, publications, and retry links, but those actions do not search the Reading Room and are not equivalent to CIA FOIA corpus coverage.
+CIA is marked temporarily unavailable. At validation, the official Reading Room self-redirected and CIA.gov reported that search was unavailable. Opstalia can prepare copyable terms and provide official CIA resources/status, publications, and retry links, but those actions do not search the Reading Room and are not equivalent to CIA FOIA corpus coverage. The separate NARA RG 263 profile does not change this native-source status.
 
-State FOIA, presidential libraries, FBI Vault, NSA, DIA, DoD, DOE OpenNet, DOJ, ODNI, DHS, NRO, Treasury, Commerce, the military departments, and many other registered sources are manual adapters in 1.0. For State FOIA, Opstalia generates a user-initiated, prefilled official search handoff using applicable terms, dates, sender, recipient, case number, and document type. It does not call State from the backend or scrape the results because `foia.state.gov/robots.txt` disallows automated access to the entire site and no documented public search API was validated.
+State FOIA, presidential libraries, FBI Vault, NSA, DIA, DoD, DOE OpenNet, DOJ, ODNI, DHS, NRO, Treasury, Commerce, the military departments, and many other registered sources remain manual adapters. For State FOIA, Opstalia generates a user-initiated, prefilled official search handoff using applicable terms, dates, sender, recipient, case number, and document type. It does not call State from the backend or scrape the results because `foia.state.gov/robots.txt` disallows automated access to the entire site and no documented public search API was validated. The separate NARA RG 59 profile does not change this native-source status.
 
 A manual adapter does not return normalized results. It opens the official search system and preserves the source in the research plan; the researcher must evaluate any relevant official record. A manually discovered locator can be recorded only after the researcher confirms that the material is unclassified and publicly released. The locator must use HTTPS on the source registry's approved official domain and match the adapter-specific direct record-page or record-file path policy. Domain approval alone is not enough: generic search-results, status, home, publications, collection, and other navigation pages are research leads and are rejected as primary evidence. Opstalia does not silently scrape a source whose interface, terms, or robots directives make automation unreliable.
 
@@ -109,7 +124,7 @@ Projects are stored in the current browser's IndexedDB. There are no accounts, c
 
 GitHub Pages project sites share their origin. Local browser storage is a convenience, not an approved repository for restricted data.
 
-Private mode prevents Opstalia project persistence and keeps current project state in memory, but it is not anonymity. NARA queries still pass through Cloudflare to NARA, manual source visits create ordinary browser requests, and GitHub and Cloudflare may retain infrastructure logs under their own policies.
+Private mode prevents Opstalia project persistence and keeps current project state in memory, but it is not anonymity. Selected live queries still pass through Cloudflare to NARA, GovInfo, NTRS, or OSTI as applicable; manual source visits create ordinary browser requests; and providers may retain infrastructure logs under their own policies.
 
 ## Reports and fixtures
 

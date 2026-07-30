@@ -1,0 +1,42 @@
+[
+  {
+    "identifier": "AC02-05CH11231",
+    "title": "Trivalent titanium in high-titanium lunar ilmenite",
+    "publication_date": "2026-03-27T00:00:00Z",
+    "osti_id": "3363743",
+    "product_type": "Journal Article",
+    "authors": [
+      "Vira, Advik D. [Georgia Institute of Technology, Atlanta, GA (United States)] (ORCID:0000000308694951)",
+      "Burgess, Katherine D. [US Naval Research Lab. (NRL), Washington, DC (United States)] (ORCID:000000032028447X)"
+    ],
+    "subjects": [
+      "mineralogy",
+      "petrology"
+    ],
+    "sponsor_orgs": [
+      "National Aeronautics and Space Administration (NASA)",
+      "National Science Foundation (NSF)",
+      "USDOE Office of Science (SC), Basic Energy Sciences (BES). Scientific User Facilities (SUF)"
+    ],
+    "research_orgs": [
+      "Lawrence Berkeley National Laboratory (LBNL), Berkeley, CA (United States)"
+    ],
+    "other_identifiers": [
+      "Journal ID: ISSN 2041-1723;ark:/13030/qt7v9839t4; https://escholarship.org/uc/item/7v9839t4"
+    ],
+    "links": [
+      {
+        "rel": "citation",
+        "href": "https://www.osti.gov/biblio/3363743"
+      },
+      {
+        "rel": "fulltext",
+        "href": "https://www.osti.gov/servlets/purl/3363743"
+      },
+      {
+        "rel": "citation_doe_pages",
+        "href": "https://www.osti.gov/pages/biblio/3363743"
+      }
+    ]
+  }
+]

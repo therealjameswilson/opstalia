@@ -94,6 +94,86 @@ export const apiSearchRequestSchema = z.object({
   privateMode: z.boolean().default(false)
 });
 
+const officialAccessLinkSchema = z.object({
+  label: z.string().min(1).max(200),
+  url: z.string().url().max(4096).refine((value) => value.startsWith("https://"), {
+    message: "Official access links must use HTTPS"
+  }),
+  kind: z.enum(["search", "status", "fallback", "guide"])
+});
+
+const sourceDefinitionSchema = z.object({
+  id: z.string().regex(/^[a-z0-9-]+$/).max(100),
+  displayName: z.string().min(1).max(500),
+  agency: z.string().min(1).max(500),
+  officialDomains: z
+    .array(
+      z
+        .string()
+        .min(1)
+        .max(253)
+        .regex(/^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)*[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/i)
+    )
+    .min(1)
+    .max(30),
+  description: z.string().min(1).max(3000),
+  searchCapability: z.enum(["automated", "manual", "planned"]),
+  apiAvailability: z.string().min(1).max(3000),
+  authentication: z.string().min(1).max(1000),
+  rateLimit: z.string().min(1).max(1000),
+  robotsAndTerms: z.string().min(1).max(5000),
+  adapterStatus: z.enum([
+    "integrated",
+    "beta",
+    "manual",
+    "temporarily_unavailable",
+    "planned",
+    "retired"
+  ]),
+  implementationMethod: z.string().min(1).max(3000),
+  supportedFilters: z.array(z.string().max(500)).max(100),
+  fieldsReturned: z.array(z.string().max(500)).max(100),
+  knownLimitations: z.array(z.string().max(3000)).max(100),
+  manualSearchUrl: z.string().url().max(4096).refine((value) => value.startsWith("https://"), {
+    message: "Manual source links must use HTTPS"
+  }),
+  manualSearchLabel: z.string().min(1).max(200).optional(),
+  officialAccessLinks: z.array(officialAccessLinkSchema).max(20).optional(),
+  lastValidated: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  enabledByDefault: z.boolean()
+});
+
+export const sourceRegistryDataSchema = z
+  .object({
+    version: z.string().regex(/^\d+\.\d+\.\d+$/),
+    lastValidated: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+    policyStatement: z.string().min(1).max(1000),
+    sources: z.array(sourceDefinitionSchema).min(1).max(500)
+  })
+  .superRefine((registry, context) => {
+    const seen = new Set<string>();
+    registry.sources.forEach((source, index) => {
+      if (seen.has(source.id)) {
+        context.addIssue({
+          code: "custom",
+          path: ["sources", index, "id"],
+          message: `Duplicate source ID: ${source.id}`
+        });
+      }
+      seen.add(source.id);
+      if (
+        source.searchCapability === "automated" &&
+        !["integrated", "beta"].includes(source.adapterStatus)
+      ) {
+        context.addIssue({
+          code: "custom",
+          path: ["sources", index, "adapterStatus"],
+          message: "Automated sources must be integrated or beta"
+        });
+      }
+    });
+  });
+
 const releaseStatusSchema = z.enum([
   "released_in_full",
   "released_in_part",
@@ -151,7 +231,7 @@ const digitalObjectSchema = z.object({
   sizeBytes: z.number().int().nonnegative().optional()
 });
 
-const normalizedRecordSchema = z.object({
+export const normalizedRecordSchema = z.object({
   id: z.string().min(1).max(200),
   title: sourcedValueSchema(z.string().max(20_000)),
   date: sourcedValueSchema(z.string().max(100)).optional(),
@@ -218,7 +298,7 @@ const normalizedRecordSchema = z.object({
   })
 });
 
-const sourceRunSchema = z.object({
+export const sourceRunSchema = z.object({
   id: z.string().min(1).max(200),
   sourceId: z.string().min(1).max(100),
   status: z.enum([
@@ -250,6 +330,23 @@ const sourceRunSchema = z.object({
     })
     .optional(),
   fromCache: z.boolean().optional()
+});
+
+export const sourceSearchResponseSchema = z.object({
+  sourceRun: sourceRunSchema,
+  rawRecords: z
+    .array(
+      z.object({
+        id: z.string().min(1).max(200),
+        sourceId: z.string().min(1).max(100),
+        retrievalTimestamp: z.string().max(80),
+        payload: z.unknown(),
+        payloadHash: z.string().max(200).optional()
+      })
+    )
+    .max(50),
+  records: z.array(normalizedRecordSchema).max(50),
+  warnings: z.array(z.string().max(5000)).max(100)
 });
 
 const versionRelationshipSchema = z.object({

@@ -22,7 +22,7 @@ const MONTHS: Record<string, string> = {
 export function normalizeDate(input?: string | null): NormalizedDate {
   const display = (input ?? "").trim();
   if (!display) return { display: "", precision: "unknown" };
-  const isoDay = display.match(/\b(\d{4})-(\d{2})-(\d{2})\b/);
+  const isoDay = display.match(/\b(\d{4})-(\d{2})-(\d{2})(?!\d)/);
   if (isoDay) return { display, iso: `${isoDay[1]}-${isoDay[2]}-${isoDay[3]}`, precision: "day" };
   const isoMonth = display.match(/\b(\d{4})-(\d{2})\b/);
   if (isoMonth) return { display, iso: `${isoMonth[1]}-${isoMonth[2]}`, precision: "month" };
