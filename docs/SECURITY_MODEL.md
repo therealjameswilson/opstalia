@@ -84,7 +84,7 @@ flowchart LR
     W -->|"HTTPS GET: q, limit, supported filters, secret key"| N
     N -->|"JSON metadata and object links"| W
     W -->|"normalized transient results; no-store"| B
-    B -->|"ordinary navigation or embedded-view request"| M
+    B -->|"user-initiated navigation; prepared terms/filters when displayed"| M
 ```
 
 ### Build-time source refresh
@@ -162,11 +162,21 @@ these adapters.
 
 ## Manual-source path
 
-Manual adapters do not scrape or normalize a result. They expose a registered
-official URL and limitations. Selecting that link performs an ordinary browser
-navigation to the official repository. Opstalia does not automatically send the
-search plan to that repository; any terms entered there are governed by the
-repository and the user's environment.
+Manual adapters do not scrape or normalize a result. They expose registered
+official URLs, prepared terms, and limitations. For State FOIA, the displayed
+official URL contains supported plan fields; selecting it performs an ordinary
+browser navigation and transmits those values to State. For CIA, the terms
+remain copyable while the official Reading Room is unavailable. Nothing opens
+automatically, and the local research-notes field is never included.
+
+A manually discovered locator enters a project only after the researcher
+confirms that it identifies an unclassified, publicly released record. The URL
+must pass the selected adapter's HTTPS official-domain allowlist and a
+source/path rule: CIA Reading Room record pages/files, State FOIA
+`/DOCUMENTS/…` PDFs, FBI Vault downloads, or direct record files for other
+manual adapters. Domain-valid home, search, status, and publications pages are
+rejected. Opstalia stores researcher-confirmed locator metadata and does not
+fetch the document.
 
 ## Trust boundaries
 

@@ -2,7 +2,12 @@ import { openDB, type DBSchema, type IDBPDatabase } from "idb";
 import type { NormalizedRecord, SearchProject } from "../core/types";
 import { projectImportSchema } from "../core/validation";
 import { getSource } from "../data/registry";
-import { isApprovedOfficialUrl, validatePrimaryEvidence } from "../security/url-policy";
+import {
+  isApprovedOfficialUrl,
+  validatePrimaryEvidence,
+  validateResearcherRecordLocator
+} from "../security/url-policy";
+import { buildManualSearchHandoff } from "../search/manual-handoff";
 
 interface OpstaliaDatabase extends DBSchema {
   projects: {
@@ -171,6 +176,26 @@ export function parseImportedProject(text: string): SearchProject {
   }
   const value = JSON.parse(text) as unknown;
   const parsedProject = projectImportSchema.parse(value) as SearchProject;
+  const targetKeys: Array<keyof SearchProject["target"]> = [
+    "mode",
+    "quickQuery",
+    "titleOrSubject",
+    "exactPhrase",
+    "generalKeywords",
+    "dateFrom",
+    "dateTo",
+    "originatingAgency",
+    "originatingOffice",
+    "authorSender",
+    "recipient",
+    "documentType",
+    "identifiers",
+    "geographicFocus",
+    "notes"
+  ];
+  if (targetKeys.some((key) => parsedProject.target[key] !== parsedProject.plan.target[key])) {
+    throw new Error("Imported project target does not match its search-plan target");
+  }
   const project: SearchProject = {
     ...parsedProject,
     fixture: false,
@@ -186,7 +211,13 @@ export function parseImportedProject(text: string): SearchProject {
   const recordIds = new Set(project.records.map((record) => record.id));
   for (const run of project.sourceRuns) {
     const source = getSource(run.sourceId);
-    if (!source || (run.manualSearchUrl && !isApprovedOfficialUrl(run.manualSearchUrl, source))) {
+    const handoffUrl = run.manualHandoff?.queryUrl;
+    if (
+      !source ||
+      (run.manualHandoff && source.searchCapability !== "manual") ||
+      (run.manualSearchUrl && !isApprovedOfficialUrl(run.manualSearchUrl, source)) ||
+      (handoffUrl && !isApprovedOfficialUrl(handoffUrl, source))
+    ) {
       throw new Error(`Imported source run ${run.id} is not tied to a registered official source`);
     }
   }
@@ -204,10 +235,26 @@ export function parseImportedProject(text: string): SearchProject {
     if (!primary.allowed || !source) {
       throw new Error(`Imported record ${record.id} was rejected: ${primary.reason}`);
     }
+    const effectiveOfficialUrl =
+      record.officialUrl.researcherOverride?.value ?? record.officialUrl.value;
+    if (!isApprovedOfficialUrl(effectiveOfficialUrl, source)) {
+      throw new Error(
+        `Imported record ${record.id} contains an official-URL override outside its registered official-domain allowlist`
+      );
+    }
+    if (source.searchCapability === "manual") {
+      const locator = validateResearcherRecordLocator(effectiveOfficialUrl, source);
+      if (!locator.allowed) {
+        throw new Error(`Imported researcher locator ${record.id} was rejected: ${locator.reason}`);
+      }
+    }
     const officialUrls = [
       record.recordPageUrl.value,
+      record.recordPageUrl.researcherOverride?.value,
       record.downloadUrl?.value,
+      record.downloadUrl?.researcherOverride?.value,
       record.thumbnailUrl?.value,
+      record.thumbnailUrl?.researcherOverride?.value,
       ...record.digitalObjects.flatMap((object) => [object.url, object.downloadUrl, object.thumbnailUrl])
     ].filter((url): url is string => Boolean(url));
     if (officialUrls.some((url) => !isApprovedOfficialUrl(url, source))) {
@@ -227,5 +274,40 @@ export function parseImportedProject(text: string): SearchProject {
       throw new Error(`Imported comparison ${comparison.id} references a record that does not exist`);
     }
   }
-  return project;
+  const sourceRecordCounts = new Map<string, number>();
+  for (const record of project.records) {
+    const sourceId = record.provenance.sourceId;
+    sourceRecordCounts.set(sourceId, (sourceRecordCounts.get(sourceId) ?? 0) + 1);
+  }
+  return {
+    ...project,
+    sourceRuns: project.sourceRuns.map((run) => {
+      const resultCount = sourceRecordCounts.get(run.sourceId) ?? 0;
+      const source = getSource(run.sourceId)!;
+      if (source.searchCapability !== "manual") {
+        return {
+          ...run,
+          resultCount,
+          message: run.message
+            ? `Imported, not revalidated: ${run.message}`
+            : "Imported source-run status; not revalidated."
+        };
+      }
+      const manualHandoff = buildManualSearchHandoff(source, project.plan);
+      const unavailable = source.adapterStatus === "temporarily_unavailable";
+      return {
+        ...run,
+        status: unavailable ? "temporarily_unavailable" : "manual_available",
+        resultCount,
+        manualSearchUrl: source.manualSearchUrl,
+        message: unavailable
+          ? "Imported manual handoff; the current source registry marks this repository temporarily unavailable."
+          : "Imported manual handoff; source status and prior search activity were not revalidated.",
+        manualHandoff: {
+          ...manualHandoff,
+          researcherResultCount: resultCount
+        }
+      };
+    })
+  };
 }

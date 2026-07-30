@@ -13,11 +13,79 @@ export function domainMatches(hostname: string, approvedDomain: string): boolean
 export function isApprovedOfficialUrl(url: string, source: SourceDefinition): boolean {
   try {
     const parsed = new URL(url);
-    if (parsed.protocol !== "https:") return false;
+    if (
+      parsed.protocol !== "https:" ||
+      parsed.username ||
+      parsed.password ||
+      parsed.port
+    ) {
+      return false;
+    }
     return source.officialDomains.some((domain) => domainMatches(parsed.hostname, domain));
   } catch {
     return false;
   }
+}
+
+const PUBLIC_RECORD_FILE = /\.(?:pdf|txt|tif|tiff|jpg|jpeg|png|jp2)$/i;
+
+export function validateResearcherRecordLocator(
+  url: string,
+  source: SourceDefinition
+): { allowed: boolean; reason: string } {
+  if (!isApprovedOfficialUrl(url, source)) {
+    return {
+      allowed: false,
+      reason: `Use an HTTPS URL without credentials or a nonstandard port on an approved ${source.displayName} domain.`
+    };
+  }
+
+  const parsed = new URL(url);
+  const path = parsed.pathname;
+  if (source.id === "cia") {
+    const readingRoomRecord = /^\/readingroom\/document\/[^/]+\/?$/i.test(path);
+    const readingRoomFile =
+      /^\/readingroom\/(?:docs?|document-files?)\//i.test(path) &&
+      PUBLIC_RECORD_FILE.test(path);
+    return readingRoomRecord || readingRoomFile
+      ? { allowed: true, reason: "Recognized CIA Reading Room record or file locator" }
+      : {
+          allowed: false,
+          reason:
+            "Use a CIA Reading Room document page (/readingroom/document/…) or direct Reading Room record file, not a CIA home, search, status, or publications page."
+        };
+  }
+
+  if (source.id === "state-foia") {
+    return /^\/documents\/.+\.pdf$/i.test(path)
+      ? { allowed: true, reason: "Recognized State FOIA released-document file locator" }
+      : {
+          allowed: false,
+          reason:
+            "Use a direct State released-document PDF under /DOCUMENTS/…, not the search-results page, FOIA homepage, or another navigation page."
+        };
+  }
+
+  if (source.id === "fbi-vault") {
+    const vaultDownload =
+      domainMatches(parsed.hostname, "vault.fbi.gov") &&
+      /\/at_download\/file\/?$/i.test(path);
+    return vaultDownload || PUBLIC_RECORD_FILE.test(path)
+      ? { allowed: true, reason: "Recognized FBI Vault record file locator" }
+      : {
+          allowed: false,
+          reason:
+            "Use an FBI Vault /at_download/file URL or another direct official record file, not an FBI homepage or search page."
+        };
+  }
+
+  return PUBLIC_RECORD_FILE.test(path)
+    ? { allowed: true, reason: "Direct public record file on an approved official domain" }
+    : {
+        allowed: false,
+        reason:
+          "Use a direct official public record file URL. Homepages, search pages, status pages, and general collection pages are research leads, not primary record evidence."
+      };
 }
 
 export function validatePrimaryEvidence(

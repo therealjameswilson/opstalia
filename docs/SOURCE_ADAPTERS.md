@@ -120,10 +120,42 @@ A manual adapter returns:
 
 - a `SourceRun` with `manual_available` or `temporarily_unavailable`;
 - zero normalized records;
-- the official manual-search URL; and
+- the official manual-search or fallback URLs;
+- prepared, copyable search terms when supported; and
 - registry limitations.
 
-CIA is `temporarily_unavailable` because validation encountered an unreliable redirect loop. State FOIA and the other manual sources are not represented as automated. See `SOURCE_COVERAGE.md` for the complete list.
+### Department of State FOIA handoff
+
+State FOIA remains `manual`. Opstalia can construct a user-initiated URL for the official `foia.state.gov/FOIALIBRARY/SearchResults.aspx` interface by mapping applicable search-plan values to the site's search terms, document-date range, sender, recipient, case number, and document-type fields.
+
+This is navigation, not an automated source query:
+
+- the user explicitly opens the generated official URL;
+- no Opstalia backend calls the State system;
+- no State results page is scraped, parsed, cached, or normalized; and
+- the source run remains `manual_available` with zero records.
+
+This design respects the site's `robots.txt`, which disallows automated access to the entire site, and the absence of a validated documented public API.
+
+### CIA unavailable-state assistance
+
+CIA remains `temporarily_unavailable`. During 2026-07-29 validation, the official Reading Room self-redirected and CIA.gov reported search unavailable. Opstalia therefore prepares copyable terms and exposes working official CIA resources/status and publications links along with a Reading Room retry link. It does not bypass robots restrictions, retrieve Reading Room results, or describe these fallbacks as equivalent CIA FOIA coverage.
+
+### Recording evidence found manually
+
+A researcher can record an official record or file URL found after a manual
+handoff only after confirming that the material is unclassified and publicly
+released. An approved domain is necessary but not sufficient. Version 1.0.1
+accepts CIA Reading Room `/readingroom/document/…` pages or direct Reading Room
+files, State FOIA `/DOCUMENTS/…` PDFs, FBI Vault `/at_download/file` locators,
+and direct public record files for other manual adapters. Home, search, status,
+and general publications pages cannot enter the primary evidence set. Accepted
+locators carry researcher-recorded provenance and remain visibly distinct from
+adapter-normalized results.
+
+Exports and reports distinguish automated source searches, manual handoffs, and unavailable sources. A generated or opened handoff does not count as an automated search or a result found.
+
+State FOIA and the other manual sources are not represented as automated. See `SOURCE_COVERAGE.md` for the complete list.
 
 ## Search orchestration
 

@@ -49,6 +49,7 @@ export default function App() {
   const [currentProject, setCurrentProject] = useState<SearchProject | undefined>();
   const [compareIds, setCompareIds] = useState<string[]>([]);
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [searchSession, setSearchSession] = useState(0);
 
   const refreshProjects = useCallback(async () => {
     const stored = await listProjects();
@@ -69,7 +70,10 @@ export default function App() {
 
   const navigate = (next: string, clearProject = false) => {
     const nextView = next as View;
-    if (clearProject) setCurrentProject(undefined);
+    if (clearProject) {
+      setCurrentProject(undefined);
+      setSearchSession((current) => current + 1);
+    }
     setView(nextView);
     setMobileOpen(false);
     if (!location.hash.startsWith("#search?") || nextView !== "new-search") history.pushState(null, "", `#${nextView}`);
@@ -78,18 +82,15 @@ export default function App() {
 
   const updateProject = async (project: SearchProject) => {
     setCurrentProject(project);
-    setProjects((current) => {
-      const next = [...current.filter((item) => item.id !== project.id), project];
-      return next;
-    });
-    if (!project.privateMode) {
-      await saveProject(project);
-      await refreshProjects();
-    }
+    if (project.privateMode) return;
+    setProjects((current) => [...current.filter((item) => item.id !== project.id), project]);
+    await saveProject(project);
+    await refreshProjects();
   };
 
   const openProject = (project: SearchProject) => {
     setCurrentProject(project);
+    setSearchSession((current) => current + 1);
     navigate("new-search");
   };
 
@@ -98,10 +99,21 @@ export default function App() {
     navigate("compare");
   };
 
+  const workingProjects = currentProject?.privateMode
+    ? [...projects.filter((project) => project.id !== currentProject.id), currentProject]
+    : projects;
+
   const mainContent = (() => {
     switch (view) {
       case "new-search":
-        return <SearchPage key={currentProject?.id ?? "new"} project={currentProject} onProjectUpdate={updateProject} onCompare={openCompare} />;
+        return (
+          <SearchPage
+            key={`search-session-${searchSession}`}
+            project={currentProject}
+            onProjectUpdate={updateProject}
+            onCompare={openCompare}
+          />
+        );
       case "projects":
         return (
           <ProjectsPage
@@ -115,9 +127,9 @@ export default function App() {
           />
         );
       case "saved":
-        return <SavedPage projects={projects} onOpenProject={openProject} onCompare={openCompare} />;
+        return <SavedPage projects={workingProjects} onOpenProject={openProject} onCompare={openCompare} />;
       case "compare":
-        return <ComparePage projects={projects} initialRecordIds={compareIds} onProjectUpdate={updateProject} />;
+        return <ComparePage projects={workingProjects} initialRecordIds={compareIds} onProjectUpdate={updateProject} />;
       case "coverage":
         return <CoveragePage />;
       case "exemptions":
@@ -129,7 +141,13 @@ export default function App() {
       case "privacy":
         return <PrivacyPage />;
       default:
-        return <DashboardPage projects={projects} onNavigate={navigate} onOpenProject={openProject} />;
+        return (
+          <DashboardPage
+            projects={projects}
+            onNavigate={(next) => navigate(next, next === "new-search")}
+            onOpenProject={openProject}
+          />
+        );
     }
   })();
 

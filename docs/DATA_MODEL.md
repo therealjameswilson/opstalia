@@ -66,7 +66,7 @@ Contains the target, generated queries, creation time, and an editable source-se
 
 ### `Source`
 
-Represented by `SourceDefinition` and loaded from `data/sources.json`. It records official domains, capability, API and authentication notes, rate limits, robots/terms notes, adapter status, implementation, filters, returned fields, limitations, manual fallback, validation date, and default-selection state.
+Represented by `SourceDefinition` and loaded from `data/sources.json`. It records official domains, capability, API and authentication notes, rate limits, robots/terms notes, adapter status, implementation, filters, returned fields, limitations, manual fallback, optional labeled official access links, validation date, and default-selection state.
 
 ### `SourceRun`
 
@@ -81,7 +81,20 @@ Records one source’s operational state:
 - `manual_available`
 - `cancelled`
 
-It also carries timestamps, result count, a human-readable message, and an optional manual-search URL. A source failure is a data point in the report, not a reason to discard other sources.
+It also carries timestamps, result count, a human-readable message, and an optional manual-search URL. A manual run may carry a `ManualSearchHandoff` containing the prepared query text, official destination URL, applied filters, warnings, opened/completed timestamps, and researcher-recorded locator count. Its status distinguishes a prepared, opened, legacy completed, or upstream-unavailable handoff. Recording one locator does not by itself mark a source search complete.
+
+The handoff is a browser-navigation aid, not an adapter result. State FOIA handoffs encode supported fields into the official search URL only after the researcher chooses to open it. CIA handoffs retain copyable retry terms while the official service is unavailable. Research notes are never included.
+
+A researcher may add a manually found official locator to the normalized
+project only after confirming that it is unclassified and publicly released.
+The URL must match the selected source's registered HTTPS domains and a
+source/path rule: CIA Reading Room document pages/files, State FOIA
+`/DOCUMENTS/…` PDFs, FBI Vault downloads, or a direct public record file for
+other manual adapters. Generic navigation, search, status, and publications
+pages are rejected. Its field provenance is `researcher_confirmed`, its release
+status begins as `not_determined`, and no document contents are fetched.
+
+A source failure is a data point in the report, not a reason to discard other sources.
 
 ### `RawSourceRecord`
 
@@ -279,7 +292,12 @@ Project JSON is labeled `opstalia-project-1.0`. Import:
 - creates a new imported project ID;
 - checks source identifiers and all result/file URLs against the registry;
 - clears fixture claims and marks imported provenance as not revalidated;
-- removes private-mode state before persistence; and
+- rejects a mismatch between the displayed target and the search-plan target;
+- regenerates manual handoff terms, filters, URLs, and current availability from
+  the validated plan and source registry instead of trusting imported links;
+- reconciles source counts against imported normalized records;
+- preserves private-mode state and opens private imports in memory without
+  persistence; and
 - does not fetch arbitrary URLs during import.
 
 The importer does not authenticate provenance or re-fetch source records.

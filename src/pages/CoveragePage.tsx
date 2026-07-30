@@ -1,5 +1,11 @@
 import { useMemo, useState } from "react";
-import { activeSourceCounts, sourcePolicyStatement, sourceRegistry, sourceRegistryValidated } from "../data/registry";
+import {
+  activeSourceCounts,
+  sourcePolicyStatement,
+  sourceRegistry,
+  sourceRegistryValidated,
+  sourceRegistryVersion
+} from "../data/registry";
 import type { AdapterStatus } from "../core/types";
 import { ExternalLink, SectionHeading } from "../ui/common";
 
@@ -20,7 +26,7 @@ export function CoveragePage() {
   return (
     <>
       <SectionHeading eyebrow="Source registry · validated 2026-07-29" title="Source coverage">
-        <p>{sourcePolicyStatement} Automated status means a real adapter exists; manual status means Opstalia opens the official search system without pretending to normalize results.</p>
+        <p>{sourcePolicyStatement} Automated status means a real adapter exists; manual status means Opstalia prepares a user-initiated official search without pretending to retrieve or normalize the results.</p>
       </SectionHeading>
       <section className="coverage-summary">
         {(["integrated", "beta", "manual", "temporarily_unavailable", "planned", "retired"] as AdapterStatus[]).map((status) => (
@@ -48,7 +54,6 @@ export function CoveragePage() {
               <th scope="col">Method</th>
               <th scope="col">Authentication</th>
               <th scope="col">Limitations</th>
-              <th scope="col">Official access</th>
             </tr>
           </thead>
           <tbody>
@@ -58,6 +63,19 @@ export function CoveragePage() {
                   <strong>{source.displayName}</strong>
                   <span>{source.agency}</span>
                   <small>{source.description}</small>
+                  <div className="coverage-source-actions">
+                    {(source.searchCapability === "manual" || source.adapterStatus === "temporarily_unavailable") && (
+                      <a href="#new-search">
+                        {source.id === "cia" ? "Prepare CIA retry terms" : "Prepare search handoff"}
+                      </a>
+                    )}
+                    {(source.officialAccessLinks?.length
+                      ? source.officialAccessLinks
+                      : [{ label: source.manualSearchLabel ?? "Open official source", url: source.manualSearchUrl }]
+                    ).map((link) => (
+                      <ExternalLink key={link.url} href={link.url}>{link.label}</ExternalLink>
+                    ))}
+                  </div>
                 </th>
                 <td><span className={`coverage-pill source-${source.adapterStatus}`}>{source.adapterStatus.replaceAll("_", " ")}</span></td>
                 <td>
@@ -74,13 +92,12 @@ export function CoveragePage() {
                 <td>
                   <ul>{source.knownLimitations.map((limitation) => <li key={limitation}>{limitation}</li>)}</ul>
                 </td>
-                <td><ExternalLink href={source.manualSearchUrl}>Open official source</ExternalLink></td>
               </tr>
             ))}
           </tbody>
         </table>
       </div>
-      <p className="validation-note">Registry version 1.0.0 · last source-interface validation {sourceRegistryValidated}.</p>
+      <p className="validation-note">Registry version {sourceRegistryVersion} · last source-interface validation {sourceRegistryValidated}.</p>
     </>
   );
 }

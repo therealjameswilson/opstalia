@@ -236,6 +236,19 @@ const sourceRunSchema = z.object({
   resultCount: z.number().int().nonnegative(),
   message: z.string().max(5000).optional(),
   manualSearchUrl: z.string().url().max(4096).optional(),
+  manualHandoff: z
+    .object({
+      queryText: z.string().max(1000),
+      queryUrl: z.string().url().max(4096).optional(),
+      appliedFilters: z.record(z.string().max(200), z.string().max(1000)),
+      status: z.enum(["prepared", "opened", "completed", "unavailable"]),
+      openedAt: z.string().max(80).optional(),
+      completedAt: z.string().max(80).optional(),
+      researcherResultCount: z.number().int().nonnegative().optional(),
+      researcherNotes: z.string().max(5000).optional(),
+      warnings: z.array(z.string().max(2000)).max(20)
+    })
+    .optional(),
   fromCache: z.boolean().optional()
 });
 

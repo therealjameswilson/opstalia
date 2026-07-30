@@ -105,12 +105,14 @@ No KV, D1, Durable Object, R2 bucket, analytics service, or response cache is us
 4. Sources run concurrently. Queries within each source run sequentially.
 5. NARA is capped at the first three enabled plan queries, with 20 requested results per query, to protect quota.
 6. Local FRUS, ISCAP, and NDC adapters may evaluate every enabled query targeted to that source.
-7. A source failure is normalized into that source’s run status; other sources continue.
-8. Partial normalized results render as they arrive.
-9. Per-source and cross-source deduplication runs deterministically.
-10. Version candidates are grouped with explicit signals and researcher review remains authoritative.
+7. Manual sources generate a local handoff worksheet. State FOIA receives a query-aware official URL; unavailable CIA receives copyable retry terms and official status/publication links.
+8. Nothing opens automatically. The researcher must initiate navigation to an official manual source.
+9. A source failure is normalized into that source’s run status; other sources continue.
+10. Partial normalized results render as they arrive.
+11. Per-source and cross-source deduplication runs deterministically.
+12. Version candidates are grouped with explicit signals and researcher review remains authoritative.
 
-Manual adapters never manufacture normalized results. They return a `manual_available` or `temporarily_unavailable` source run and the source’s registered official URL.
+Manual adapters never manufacture normalized results. They return a `manual_available` or `temporarily_unavailable` source run, prepared unclassified terms, and registered official URLs. A researcher can separately record a locator found on the official site only after confirming its public, unclassified status. The locator must use HTTPS on the selected source's approved official domain and satisfy that adapter's direct record-page or record-file path rules; passing the domain allowlist alone is insufficient. Generic search-results, status, home, publications, collection, and other navigation pages remain research leads and are not admitted as primary evidence. Opstalia does not fetch the document.
 
 ## Data flow and privacy
 
@@ -127,7 +129,7 @@ Manual adapters never manufacture normalized results. They return a `manual_avai
 - ordinary requests for GitHub Pages assets;
 - a validated `NormalizedSearchQuery` sent by POST to the Worker for each selected NARA plan query: the structured target with its local notes field explicitly removed, the one generated query, result limit, optional cursor, and private-mode flag;
 - only the supported search parameters constructed by the Worker and sent to the NARA Catalog API: query text and, when supplied and applicable, NAID, start/end dates, exact title, creator, geographic reference, and material type; the local notes field is not forwarded to NARA; and
-- ordinary navigation requests when a researcher opens a manual adapter or official record.
+- ordinary navigation requests when a researcher opens a manual adapter or official record; for a prefilled handoff, the official URL contains the prepared terms and supported filters but never the local research-notes field.
 
 The application includes no third-party analytics, advertising, user accounts, or remote font dependency.
 
@@ -153,7 +155,14 @@ FRUS, ISCAP, and NDC static-index records may be retained because they are check
 1. the source exists in the registry;
 2. the record’s provenance adapter ID matches that source;
 3. the official URL uses HTTPS and matches a registered domain; and
-4. provenance contains an official record or file URL.
+4. provenance contains an official record or file URL; and
+5. for a researcher-entered locator from a manual source, the URL also matches
+   that adapter's direct record-page or record-file path policy.
+
+An approved hostname is necessary but not sufficient for a manual-source
+locator. Generic search-results, status, home, publications, collection, and
+other navigation pages are handoff or research-lead URLs, not primary release
+evidence.
 
 The Worker separately applies an outbound SSRF allowlist. NARA requests cannot choose an arbitrary upstream URL.
 

@@ -59,9 +59,13 @@ The checked-in beta index contains 121 rows from the FY2026 Q3 NDC release list.
 
 ## Manual and unavailable sources
 
-CIA is marked temporarily unavailable for automation and currently provides an official manual-search link. State FOIA, presidential libraries, FBI Vault, NSA, DIA, DoD, DOE OpenNet, DOJ, ODNI, DHS, NRO, Treasury, Commerce, the military departments, and many other registered sources are manual adapters in 1.0.
+CIA is marked temporarily unavailable. At validation, the official Reading Room self-redirected and CIA.gov reported that search was unavailable. Opstalia can prepare copyable terms and provide official CIA resources/status, publications, and retry links, but those actions do not search the Reading Room and are not equivalent to CIA FOIA corpus coverage.
 
-A manual adapter does not return normalized results. It opens the official search system and preserves the source in the research plan; the researcher must evaluate and record any relevant official record. Opstalia does not silently scrape a source whose interface, terms, or robots directives make automation unreliable.
+State FOIA, presidential libraries, FBI Vault, NSA, DIA, DoD, DOE OpenNet, DOJ, ODNI, DHS, NRO, Treasury, Commerce, the military departments, and many other registered sources are manual adapters in 1.0. For State FOIA, Opstalia generates a user-initiated, prefilled official search handoff using applicable terms, dates, sender, recipient, case number, and document type. It does not call State from the backend or scrape the results because `foia.state.gov/robots.txt` disallows automated access to the entire site and no documented public search API was validated.
+
+A manual adapter does not return normalized results. It opens the official search system and preserves the source in the research plan; the researcher must evaluate any relevant official record. A manually discovered locator can be recorded only after the researcher confirms that the material is unclassified and publicly released. The locator must use HTTPS on the source registry's approved official domain and match the adapter-specific direct record-page or record-file path policy. Domain approval alone is not enough: generic search-results, status, home, publications, collection, and other navigation pages are research leads and are rejected as primary evidence. Opstalia does not silently scrape a source whose interface, terms, or robots directives make automation unreliable.
+
+Reports separately identify automated searches, manual handoffs, and unavailable sources. Opening or generating a manual handoff does not mean that Opstalia searched the repository or found a result.
 
 ## Search and ranking
 

@@ -21,10 +21,13 @@ export function ProjectsPage({ projects, onProjectsChange, onOpenProject, onLoad
     if (!file) return;
     try {
       const project = parseImportedProject(await file.text());
-      if (project.privateMode) project.privateMode = false;
       project.id = `${project.id}-import-${Date.now()}`;
       project.name = `${project.name} (imported)`;
       project.updatedAt = new Date().toISOString();
+      if (project.privateMode) {
+        onOpenProject(project);
+        return;
+      }
       await saveProject(project);
       await onProjectsChange();
       setMessage(`Imported ${project.name}.`);
@@ -37,7 +40,7 @@ export function ProjectsPage({ projects, onProjectsChange, onOpenProject, onLoad
   return (
     <>
       <SectionHeading eyebrow="Browser-local workspace" title="Search projects">
-        <p>Export projects before clearing browser data. Private-mode projects never appear here.</p>
+        <p>Export projects before clearing browser data. Private-mode projects never appear here; importing one opens it in memory without saving it.</p>
       </SectionHeading>
       <div className="toolbar project-actions">
         <button className="button button-primary" onClick={() => input.current?.click()}>Import project JSON</button>

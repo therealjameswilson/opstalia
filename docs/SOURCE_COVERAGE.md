@@ -6,7 +6,7 @@
 
 It does not search all U.S. Government websites, and it does not claim that the absence of a result establishes non-release.
 
-Registry version: **1.0.0**
+Registry version: **1.0.1**
 Last source-interface validation: **2026-07-29**
 Registered sources: **30**
 
@@ -16,8 +16,8 @@ Registered sources: **30**
 |---|---:|---|
 | Integrated | 2 | Working automated adapter with declared coverage |
 | Beta | 2 | Working automated adapter whose source structure or interpretation needs continued monitoring |
-| Manual | 20 | Official manual-search link; Opstalia does not normalize results |
-| Temporarily unavailable | 1 | Automated access was not reliable at validation; official manual link remains |
+| Manual | 20 | Official user-initiated handoff or manual-search link; Opstalia does not fetch or normalize results |
+| Temporarily unavailable | 1 | The upstream search was not usable at validation; prepared terms and official status/publications/retry links remain |
 | Planned | 5 | Discovery entry and official link; no automated or complete manual workflow claim |
 | Retired | 0 | No retired sources |
 
@@ -46,17 +46,19 @@ These counts describe the checked-in 1.0 build, not a promise that an upstream s
 
 | Source | Reason | Official fallback |
 |---|---|---|
-| CIA FOIA Electronic Reading Room | No documented public search API; validation on 2026-07-29 encountered an unreliable redirect loop | <https://www.cia.gov/readingroom/advanced-search-view/> |
+| CIA FOIA Electronic Reading Room | No documented public search API; on 2026-07-29 the official Reading Room self-redirected and CIA.gov reported search unavailable | [CIA search service notice](https://www.cia.gov/redirects/search-unavailable/); [official publications](https://www.cia.gov/resources/publications/publications-list/); [retry Reading Room](https://www.cia.gov/readingroom/advanced-search-view/) |
 
-Opstalia does not claim to search CIA automatically in this release.
+Opstalia prepares copyable CIA search terms and keeps the retry link available, but it does not bypass the Reading Room's robots restrictions or claim to have searched CIA. The resources and publications pages are useful official fallbacks, not substitutes for Reading Room corpus coverage.
 
 ## Manual-search sources
 
 These entries open official systems but produce no normalized Opstalia results until a researcher separately records official-source evidence.
 
+The Department of State entry is a first-class manual handoff: Opstalia maps the researcher's applicable search terms, date range, sender, recipient, case number, and document type into a user-initiated, prefilled request to the official released-document search. The user's browser then navigates directly to `foia.state.gov`; Opstalia makes no backend request, does not scrape the returned page, and does not claim that the handoff produced a result. This boundary is required because the site's `robots.txt` disallows automated access to the entire site and no documented public search API was validated.
+
 | Source | Agency | Official access |
 |---|---|---|
-| Department of State FOIA Virtual Reading Room | Department of State | <https://foia.state.gov/Search/Search.aspx> |
+| Department of State FOIA Virtual Reading Room | Department of State | <https://foia.state.gov/FOIALIBRARY/SearchResults.aspx> |
 | NARA Presidential Libraries | National Archives | <https://www.archives.gov/presidential-libraries/visit/websites.html> |
 | FBI Vault | Federal Bureau of Investigation | <https://vault.fbi.gov/search_form> |
 | NSA FOIA Reading Room | National Security Agency | <https://www.nsa.gov/Helpful-Links/NSA-FOIA/Reading-Room/> |
@@ -77,7 +79,17 @@ These entries open official systems but produce no normalized Opstalia results u
 | DTIC FOIA Reading Room | Defense Technical Information Center | <https://discover.dtic.mil/FOIA/> |
 | GAO Reports and Testimonies | Government Accountability Office | <https://www.gao.gov/reports-testimonies> |
 
-Manual discovery does not establish release status. Researchers must open and evaluate the official record.
+Manual discovery does not establish release status. Researchers must open and
+evaluate the official record. Opstalia permits a researcher to record a
+manually found official URL only after an explicit confirmation that the
+material is unclassified and publicly released. The URL must pass both the
+source registry's approved-domain validation and a record-locator path rule.
+CIA accepts Reading Room document pages/files, State accepts direct
+`/DOCUMENTS/…` PDFs, FBI accepts Vault downloads, and other manual adapters
+currently accept direct public record files. A homepage, search, status, or
+general publications page is not official release evidence.
+
+Research reports keep three states distinct: automated searches run by Opstalia, user-initiated manual handoffs, and sources that were unavailable. A handoff is never counted as an automated search or as a result found.
 
 ## Planned registry entries
 
