@@ -112,7 +112,7 @@ describe("GovInfo Search Service adapter", () => {
     expect(String(requestedInit?.body)).not.toContain("test-only-not-a-real-key");
     expect(requestedInit).toMatchObject({
       method: "POST",
-      redirect: "error",
+      redirect: "manual",
       cf: { cacheTtl: 0, cacheEverything: false }
     });
     expect(response.sourceRun).toMatchObject({ status: "complete", resultCount: 1 });
@@ -223,7 +223,7 @@ describe("NASA Technical Reports Server adapter", () => {
       "published.at": "2018-01-01"
     });
     expect(requestedInit).toMatchObject({
-      redirect: "error",
+      redirect: "manual",
       cf: { cacheTtl: 0, cacheEverything: false }
     });
     expect(response.sourceRun).toMatchObject({ status: "complete", resultCount: 1 });
@@ -348,7 +348,7 @@ describe("OSTI.GOV public API adapter", () => {
       publication_date_end: "2019-12-31"
     });
     expect(requestedInit).toMatchObject({
-      redirect: "error",
+      redirect: "manual",
       cf: { cacheTtl: 0, cacheEverything: false }
     });
     expect(response.sourceRun).toMatchObject({ status: "complete", resultCount: 1 });
@@ -380,5 +380,41 @@ describe("OSTI.GOV public API adapter", () => {
     const [record] = new OstiAdapter().normalize(citationOnly, query("osti-sti"), context());
     expect(record.digitalObjects).toEqual([]);
     expect(record.releaseStatus.status).toBe("metadata_only");
+  });
+});
+
+describe("Worker public API redirect policy", () => {
+  it.each([
+    {
+      name: "GovInfo",
+      sourceId: "govinfo",
+      createAdapter: () => new GovInfoAdapter({ GOVINFO_API_KEY: "test-only-not-a-real-key" }),
+      expectedError: "GovInfo API returned 302"
+    },
+    {
+      name: "NASA NTRS",
+      sourceId: "nasa-ntrs",
+      createAdapter: () => new NtrsAdapter(),
+      expectedError: "NASA NTRS API returned 302"
+    },
+    {
+      name: "OSTI.GOV",
+      sourceId: "osti-sti",
+      createAdapter: () => new OstiAdapter(),
+      expectedError: "OSTI.GOV API returned 302"
+    }
+  ])("$name rejects a redirect without following it", async ({ sourceId, createAdapter, expectedError }) => {
+    const fetchMock = vi.fn(async (_input: string | URL | Request, _init?: RequestInit) =>
+      new Response(null, {
+        status: 302,
+        headers: { Location: "https://evil.example/capture" }
+      })
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(createAdapter().search(query(sourceId), context())).rejects.toThrow(expectedError);
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock.mock.calls[0][1]).toMatchObject({ redirect: "manual" });
   });
 });

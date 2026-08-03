@@ -119,7 +119,7 @@ export class GovInfoAdapter implements SourceAdapter<GovInfoResult> {
         offsetMark: query.cursor ?? "*",
         sorts: [{ field: "score", sortOrder: "DESC" }]
       }),
-      redirect: "error",
+      redirect: "manual",
       signal: context.signal,
       cf: { cacheTtl: 0, cacheEverything: false }
     } as RequestInit & { cf: { cacheTtl: number; cacheEverything: boolean } });

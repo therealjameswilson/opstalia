@@ -132,7 +132,35 @@ describe("NARA response normalization", () => {
     expect(parameters.get("levelOfDescription")).toBe("fileUnit");
     expect(parameters.get("typeOfMaterials")).toBe("Textual Records");
     expect(parameters.has("naId_is")).toBe(false);
-    expect(requestInit?.redirect).toBe("error");
+    expect(requestInit?.redirect).toBe("manual");
+  });
+
+  it("rejects an upstream redirect without forwarding the request", async () => {
+    const fetchMock = vi.fn(async (_input: string | URL | Request, _init?: RequestInit) =>
+      new Response(null, {
+        status: 302,
+        headers: { Location: "https://evil.example/capture" }
+      })
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const adapter = new NaraAdapter({
+      NARA_API_KEY: "test-only-not-a-real-key"
+    });
+
+    await expect(
+      adapter.search(query, {
+        signal: new AbortController().signal,
+        retrievedAt: "2026-07-29T00:00:00Z"
+      })
+    ).rejects.toThrow("NARA API returned 302");
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const [input, init] = fetchMock.mock.calls[0];
+    expect(String(input)).toMatch(
+      /^https:\/\/catalog\.archives\.gov\/api\/v2\/records\/search/
+    );
+    expect(init).toMatchObject({ redirect: "manual" });
   });
 
   it.each([
