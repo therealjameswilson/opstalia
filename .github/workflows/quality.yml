@@ -21,10 +21,6 @@ jobs:
     name: Lint, test, audit, and build
     runs-on: ubuntu-latest
     timeout-minutes: 25
-    env:
-      # An unset repository variable becomes an empty string. No backend secret
-      # is required to build or test the public frontend.
-      VITE_API_BASE: ${{ vars.VITE_API_BASE }}
     steps:
       - name: Check out repository
         uses: actions/checkout@v5
@@ -61,6 +57,10 @@ jobs:
 
       - name: Build production frontend
         run: npm run build
+        env:
+          # Production-readiness builds include the public Worker URL when the
+          # repository variable is configured. Tests remain network-isolated.
+          VITE_API_BASE: ${{ vars.VITE_API_BASE }}
 
       - name: Install Playwright Chromium
         run: npx playwright install --with-deps chromium

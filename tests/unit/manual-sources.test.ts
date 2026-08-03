@@ -12,29 +12,6 @@ const naraCia = sourceRegistry.find((source) => source.id === "nara-cia-rg263")!
 const epa = sourceRegistry.find((source) => source.id === "epa")!;
 const govinfo = sourceRegistry.find((source) => source.id === "govinfo")!;
 
-function unavailableWorkerResponse(sourceId: string, manualSearchUrl: string, warning: string): Response {
-  return new Response(
-    JSON.stringify({
-      sourceRun: {
-        id: `source-run-${sourceId}`,
-        sourceId,
-        status: "temporarily_unavailable",
-        completedAt: "2026-08-03T00:00:00.000Z",
-        resultCount: 0,
-        message: "Simulated unavailable Worker response.",
-        manualSearchUrl
-      },
-      rawRecords: [],
-      records: [],
-      warnings: [warning]
-    }),
-    {
-      status: 200,
-      headers: { "Content-Type": "application/json" }
-    }
-  );
-}
-
 afterEach(() => {
   vi.unstubAllGlobals();
 });
@@ -175,15 +152,6 @@ describe("manual official-source handoffs", () => {
   });
 
   it("runs the separate NARA CIA profile only after its source ID is added to the plan", async () => {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async () =>
-        unavailableWorkerResponse(
-          naraCia.id,
-          naraCia.manualSearchUrl,
-          "This automated NARA profile does not search the native CIA FOIA Electronic Reading Room."
-        ))
-    );
     const plan = buildSearchPlan({
       mode: "quick",
       quickQuery: "Malta Summit Scowcroft Bush"
@@ -207,15 +175,6 @@ describe("manual official-source handoffs", () => {
   });
 
   it("runs a selected documented remote API after its source ID is added to the plan", async () => {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async () =>
-        unavailableWorkerResponse(
-          govinfo.id,
-          govinfo.manualSearchUrl,
-          "GovInfo search requires a server-side GOVINFO_API_KEY."
-        ))
-    );
     const plan = buildSearchPlan({
       mode: "quick",
       quickQuery: "Malta Summit"
