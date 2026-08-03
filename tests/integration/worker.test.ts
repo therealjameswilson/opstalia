@@ -212,3 +212,235 @@ describe("Worker request boundary", () => {
     expect(rejected.status).toBe(404);
   });
 });
+
+describe("Worker presidential-library PDF relay", () => {
+  const environment = {
+    APP_ENV: "production",
+    RATE_LIMIT_SALT: "test-only-pdf-relay-placeholder"
+  };
+  const body = {
+    sourceId: "presidential-libraries",
+    naraNaid: "470761856",
+    officialRecordUrl: "https://catalog.archives.gov/id/470761856",
+    officialPdfUrl: "https://catalog.archives.gov/medialz/presidential-libraries/bush/gb-nsc/example.pdf",
+    acknowledgedPublicUnclassified: true
+  };
+
+  function sessionRequest(ip: string, override: Partial<typeof body> = {}) {
+    return new Request("https://opstalia-api.example/api/pdf/session", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Origin: "https://therealjameswilson.github.io",
+        "CF-Connecting-IP": ip
+      },
+      body: JSON.stringify({ ...body, ...override })
+    });
+  }
+
+  function stubOfficialPdf(options: {
+    headIncludesLength?: boolean;
+    getIncludesLength?: boolean;
+    getEtag?: string;
+    getBodyLength?: number;
+  } = {}) {
+    const {
+      headIncludesLength = true,
+      getIncludesLength = true,
+      getEtag = "official-etag",
+      getBodyLength = 1000
+    } = options;
+    const mock = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+      if (init?.method === "HEAD") {
+        const responseHeaders = new Headers({
+          "Content-Type": "application/pdf",
+          "Accept-Ranges": "bytes",
+          ETag: "official-etag",
+          "Last-Modified": "Mon, 03 Aug 2026 00:00:00 GMT"
+        });
+        if (headIncludesLength) responseHeaders.set("Content-Length", "1000");
+        return new Response(null, {
+          status: 200,
+          headers: responseHeaders
+        });
+      }
+      const full = new Uint8Array(getBodyLength);
+      full.set(new TextEncoder().encode("%PDF-"));
+      const responseHeaders = new Headers({
+        "Content-Type": "application/pdf",
+        ETag: getEtag,
+        "Last-Modified": "Mon, 03 Aug 2026 00:00:00 GMT"
+      });
+      if (getIncludesLength) responseHeaders.set("Content-Length", "1000");
+      return new Response(full, {
+        status: 200,
+        headers: responseHeaders
+      });
+    });
+    vi.stubGlobal("fetch", mock);
+    return mock;
+  }
+
+  it("requires the signing secret without exposing it", async () => {
+    const response = await worker.fetch(sessionRequest("198.51.100.81"), { APP_ENV: "production" });
+    expect(response.status).toBe(503);
+    const text = await response.text();
+    expect(text).toContain("PDF_RELAY_NOT_READY");
+    expect(text).not.toContain(environment.RATE_LIMIT_SALT);
+  });
+
+  it("streams under the fixed ceiling when Worker subrequests omit Content-Length", async () => {
+    stubOfficialPdf({ headIncludesLength: false, getIncludesLength: false });
+    const response = await worker.fetch(sessionRequest("198.51.100.92"), environment);
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      byteLength: null,
+      maxByteLength: 100 * 1024 * 1024,
+      acceptRanges: false,
+      deliveryMode: "bounded_full_file"
+    });
+  });
+
+  it("issues a short-lived token, full-streams one bounded browser view, and exposes only safe headers", async () => {
+    const fetchMock = stubOfficialPdf();
+    const sessionResponse = await worker.fetch(sessionRequest("198.51.100.82"), environment);
+    expect(sessionResponse.status).toBe(200);
+    const session = await sessionResponse.json() as {
+      contentUrl: string;
+      byteLength: number | null;
+      maxByteLength: number;
+      acceptRanges: boolean;
+      deliveryMode: string;
+      etag: string;
+    };
+    expect(session).toMatchObject({
+      byteLength: null,
+      maxByteLength: 100 * 1024 * 1024,
+      acceptRanges: false,
+      deliveryMode: "bounded_full_file",
+      etag: "official-etag"
+    });
+    expect(session.contentUrl).toMatch(/^\/api\/pdf\/content\?token=/);
+    expect(session.contentUrl).not.toContain(body.officialPdfUrl);
+
+    const contentResponse = await worker.fetch(
+      new Request(`https://opstalia-api.example${session.contentUrl}`, {
+        headers: {
+          Origin: "https://therealjameswilson.github.io",
+          "CF-Connecting-IP": "198.51.100.83",
+          "X-Opstalia-Packet-View": "1"
+        }
+      }),
+      environment
+    );
+    expect(contentResponse.status).toBe(200);
+    expect(contentResponse.headers.get("Content-Range")).toBeNull();
+    expect(contentResponse.headers.get("Content-Length")).toBeNull();
+    expect(contentResponse.headers.get("Accept-Ranges")).toBe("none");
+    expect(contentResponse.headers.get("Cache-Control")).toContain("no-store");
+    expect(contentResponse.headers.get("Access-Control-Expose-Headers")).toContain("Content-Range");
+    expect(contentResponse.headers.get("Set-Cookie")).toBeNull();
+    const bytes = new Uint8Array(await contentResponse.arrayBuffer());
+    expect(bytes.byteLength).toBe(1000);
+    expect(new TextDecoder().decode(bytes.subarray(0, 5))).toBe("%PDF-");
+    for (const [input, init] of fetchMock.mock.calls) {
+      expect(String(input)).toBe(body.officialPdfUrl);
+      expect(new Headers(init?.headers).get("Accept-Encoding")).toBe("identity");
+      expect(new Headers(init?.headers).has("Range")).toBe(false);
+    }
+  });
+
+  it("permits one explicitly marked bounded derivative stream and pins its validator", async () => {
+    stubOfficialPdf();
+    const sessionResponse = await worker.fetch(sessionRequest("198.51.100.90"), environment);
+    const session = await sessionResponse.json() as { contentUrl: string };
+    const response = await worker.fetch(
+      new Request(`https://opstalia-api.example${session.contentUrl}`, {
+        headers: {
+          Origin: "https://therealjameswilson.github.io",
+          "CF-Connecting-IP": "198.51.100.91",
+          "X-Opstalia-Derivative-Export": "1"
+        }
+      }),
+      environment
+    );
+    expect(response.status).toBe(200);
+    expect(response.headers.get("ETag")).toBe("official-etag");
+    expect((await response.arrayBuffer()).byteLength).toBe(1000);
+  });
+
+  it("terminates a declared-length stream that ends early", async () => {
+    stubOfficialPdf({ getBodyLength: 900 });
+    const sessionResponse = await worker.fetch(sessionRequest("198.51.100.93"), environment);
+    const session = await sessionResponse.json() as { contentUrl: string };
+    const response = await worker.fetch(
+      new Request(`https://opstalia-api.example${session.contentUrl}`, {
+        headers: {
+          Origin: "https://therealjameswilson.github.io",
+          "CF-Connecting-IP": "198.51.100.94",
+          "X-Opstalia-Packet-View": "1"
+        }
+      }),
+      environment
+    );
+    expect(response.status).toBe(200);
+    await expect(response.arrayBuffer()).rejects.toThrow(/ended before/i);
+  });
+
+  it("rejects token tampering, ranges, missing purposes, deceptive paths, and redirects", async () => {
+    stubOfficialPdf();
+    const sessionResponse = await worker.fetch(sessionRequest("198.51.100.84"), environment);
+    const session = await sessionResponse.json() as { contentUrl: string };
+    const sessionUrl = new URL(`https://opstalia-api.example${session.contentUrl}`);
+    const token = sessionUrl.searchParams.get("token")!;
+    const tampered = `${token.slice(0, -1)}${token.endsWith("a") ? "b" : "a"}`;
+    const tamperedResponse = await worker.fetch(
+      new Request(`https://opstalia-api.example/api/pdf/content?token=${tampered}`, {
+        headers: {
+          Origin: "https://therealjameswilson.github.io",
+          "CF-Connecting-IP": "198.51.100.85",
+          "X-Opstalia-Packet-View": "1"
+        }
+      }),
+      environment
+    );
+    expect(tamperedResponse.status).toBe(401);
+
+    const rangeResponse = await worker.fetch(
+      new Request(`https://opstalia-api.example${session.contentUrl}`, {
+        headers: {
+          Origin: "https://therealjameswilson.github.io",
+          "CF-Connecting-IP": "198.51.100.86",
+          Range: "bytes=0-9",
+          "X-Opstalia-Packet-View": "1"
+        }
+      }),
+      environment
+    );
+    expect(rangeResponse.status).toBe(416);
+
+    const noRangeResponse = await worker.fetch(
+      new Request(`https://opstalia-api.example${session.contentUrl}`, {
+        headers: {
+          Origin: "https://therealjameswilson.github.io",
+          "CF-Connecting-IP": "198.51.100.89"
+        }
+      }),
+      environment
+    );
+    expect(noRangeResponse.status).toBe(416);
+
+    const deceptive = await worker.fetch(sessionRequest("198.51.100.87", {
+      officialPdfUrl: "https://catalog.archives.gov.evil.example/medialz/presidential-libraries/bush/example.pdf"
+    }), environment);
+    expect(deceptive.status).toBe(400);
+
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(null, {
+      status: 302,
+      headers: { Location: "https://example.com/file.pdf" }
+    })));
+    const redirect = await worker.fetch(sessionRequest("198.51.100.88"), environment);
+    expect(redirect.status).toBe(502);
+    expect(await redirect.text()).toContain("PDF_REDIRECT_REJECTED");
+  });
+});

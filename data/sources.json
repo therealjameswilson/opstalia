@@ -1,6 +1,6 @@
 {
   "version": "1.2.0",
-  "lastValidated": "2026-07-30",
+  "lastValidated": "2026-08-03",
   "policyStatement": "Opstalia searches its current registry of supported official repositories.",
   "sources": [
     {
@@ -219,20 +219,20 @@
       "id": "presidential-libraries",
       "displayName": "NARA Presidential Libraries",
       "agency": "National Archives and Records Administration",
-      "officialDomains": ["archives.gov", "reaganlibrary.archives.gov", "obamalibrary.archives.gov"],
-      "description": "Official presidential-library systems and NARA-hosted digital collections.",
+      "officialDomains": ["archives.gov", "catalog.archives.gov", "bush41library.gov", "reaganlibrary.archives.gov", "obamalibrary.archives.gov"],
+      "description": "Official presidential-library systems, Bush Library finding aids, and NARA-hosted digital collections.",
       "searchCapability": "manual",
       "apiAvailability": "Some holdings are represented in the NARA Catalog API; no single complete libraries API",
       "authentication": "None for public UI",
       "rateLimit": "Not published",
       "robotsAndTerms": "Library-host rules vary; no automated library scraping is enabled.",
       "adapterStatus": "manual",
-      "implementationMethod": "Manual directory plus NARA Catalog discovery where represented",
-      "supportedFilters": ["library", "collection", "date", "folder title"],
-      "fieldsReturned": [],
-      "knownLimitations": ["Catalog coverage does not include every library holding", "Library sites and search systems differ"],
+      "implementationMethod": "Manual directory plus NARA Catalog discovery where represented; the PDF Packet Lab uses prefix-only admission followed by one bounded full-source stream for local browser parsing and a separate second stream for derivative export",
+      "supportedFilters": ["library", "collection", "date", "folder title", "NARA NAID", "approved packet PDF URL"],
+      "fieldsReturned": ["researcher-supplied NARA locator", "official packet URL", "page count", "researcher-reviewed page ranges"],
+      "knownLimitations": ["Catalog coverage does not include every library holding", "Library sites and search systems differ", "The Packet Lab does not scrape library sites and initially accepts only catalog.archives.gov/medialz/presidential-libraries PDFs plus a researcher-supplied canonical NAID record locator; Opstalia does not independently prove that association", "Packet Lab sources above 100 MiB are unsupported; opening downloads one complete copy into browser memory, and derivative export downloads a second copy and requires matching browser-computed SHA-256", "NARA or Cloudflare may not expose a usable Content-Length or ETag to the Worker; the hard streaming cap and browser-computed length and hash remain controlling", "The Worker caches and stores no PDF bytes"],
       "manualSearchUrl": "https://www.archives.gov/presidential-libraries/visit/websites.html",
-      "lastValidated": "2026-07-29",
+      "lastValidated": "2026-08-03",
       "enabledByDefault": true
     },
     {

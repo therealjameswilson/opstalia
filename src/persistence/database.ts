@@ -1,10 +1,11 @@
 import { openDB, type DBSchema, type IDBPDatabase } from "idb";
-import type { NormalizedRecord, SearchProject } from "../core/types";
-import { projectImportSchema } from "../core/validation";
+import type { NormalizedRecord, PdfPacketProject, SearchProject } from "../core/types";
+import { pdfPacketProjectSchema, projectImportSchema } from "../core/validation";
 import { getSource } from "../data/registry";
 import {
   isApprovedOfficialUrl,
   validateNormalizedRecordEvidence,
+  validateNaraPresidentialLibraryPacket,
   validatePrimaryEvidence,
   validateResearcherRecordLocator
 } from "../security/url-policy";
@@ -19,6 +20,11 @@ interface OpstaliaDatabase extends DBSchema {
   preferences: {
     key: string;
     value: { key: string; value: unknown };
+  };
+  pdfPackets: {
+    key: string;
+    value: PdfPacketProject;
+    indexes: { "by-updated": string };
   };
 }
 
@@ -35,11 +41,19 @@ const NARA_PROFILE_SOURCE_IDS = new Set([
 let databasePromise: Promise<IDBPDatabase<OpstaliaDatabase>> | undefined;
 
 function db(): Promise<IDBPDatabase<OpstaliaDatabase>> {
-  databasePromise ??= openDB<OpstaliaDatabase>(DATABASE_NAME, 1, {
+  databasePromise ??= openDB<OpstaliaDatabase>(DATABASE_NAME, 2, {
     upgrade(database) {
-      const projects = database.createObjectStore("projects", { keyPath: "id" });
-      projects.createIndex("by-updated", "updatedAt");
-      database.createObjectStore("preferences", { keyPath: "key" });
+      if (!database.objectStoreNames.contains("projects")) {
+        const projects = database.createObjectStore("projects", { keyPath: "id" });
+        projects.createIndex("by-updated", "updatedAt");
+      }
+      if (!database.objectStoreNames.contains("preferences")) {
+        database.createObjectStore("preferences", { keyPath: "key" });
+      }
+      if (!database.objectStoreNames.contains("pdfPackets")) {
+        const packets = database.createObjectStore("pdfPackets", { keyPath: "id" });
+        packets.createIndex("by-updated", "updatedAt");
+      }
     }
   });
   return databasePromise;
@@ -182,9 +196,69 @@ export async function deleteProject(id: string): Promise<void> {
 
 export async function clearAllLocalData(): Promise<void> {
   const database = await db();
-  const transaction = database.transaction(["projects", "preferences"], "readwrite");
-  await Promise.all([transaction.objectStore("projects").clear(), transaction.objectStore("preferences").clear()]);
+  const transaction = database.transaction(["projects", "preferences", "pdfPackets"], "readwrite");
+  await Promise.all([
+    transaction.objectStore("projects").clear(),
+    transaction.objectStore("preferences").clear(),
+    transaction.objectStore("pdfPackets").clear()
+  ]);
   await transaction.done;
+}
+
+function validatePacketProject(value: unknown): PdfPacketProject {
+  const project = pdfPacketProjectSchema.parse(value) as PdfPacketProject;
+  const source = getSource(project.source.sourceId);
+  if (!source || !project.source.officialRecordUrl || !project.source.naraNaid) {
+    throw new Error("Packet project is not tied to a registered NARA presidential-library record");
+  }
+  const admission = validateNaraPresidentialLibraryPacket(
+    {
+      officialPdfUrl: project.source.officialPdfUrl,
+      officialRecordUrl: project.source.officialRecordUrl,
+      naraNaid: project.source.naraNaid
+    },
+    source
+  );
+  if (!admission.allowed) throw new Error(`Packet project was rejected: ${admission.reason}`);
+  return project;
+}
+
+export async function savePdfPacketProject(project: PdfPacketProject): Promise<void> {
+  if (project.privateMode) return;
+  const database = await db();
+  await database.put("pdfPackets", validatePacketProject(project));
+}
+
+export async function listPdfPacketProjects(): Promise<PdfPacketProject[]> {
+  const database = await db();
+  const stored = (await database.getAllFromIndex("pdfPackets", "by-updated")).reverse();
+  return stored.flatMap((project) => {
+    try {
+      return [validatePacketProject(project)];
+    } catch {
+      return [];
+    }
+  });
+}
+
+export async function deletePdfPacketProject(id: string): Promise<void> {
+  const database = await db();
+  await database.delete("pdfPackets", id);
+}
+
+export function parseImportedPdfPacketProject(text: string): PdfPacketProject {
+  if (new TextEncoder().encode(text).byteLength > 5_000_000) {
+    throw new Error("Packet-project file exceeds the 5 MB manifest limit");
+  }
+  const imported = validatePacketProject(JSON.parse(text) as unknown);
+  return {
+    ...imported,
+    id: crypto.randomUUID(),
+    name: `${imported.name} (imported)`,
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+    source: { ...imported.source, sha256: imported.source.sha256?.toLocaleLowerCase() }
+  };
 }
 
 export async function setPreference(key: string, value: unknown): Promise<void> {

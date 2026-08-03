@@ -1,12 +1,12 @@
 # Known Limitations
 
-This document describes the boundaries of Opstalia 1.0 as implemented on July 30, 2026. These are product constraints, not promises of future access.
+This document describes the boundaries of Opstalia 1.0 as implemented on August 3, 2026. These are product constraints, not promises of future access.
 
 ## Security and network boundary
 
 Opstalia 1.0 is an **unclassified application on the regular public Internet**. It is not authorized to receive or process classified information, controlled unclassified information, personally identifiable information, or other restricted material.
 
-The public build has no source-document upload workflow. It cannot determine whether information is classified, and classification is not removed by OCR, transcription, paraphrase, summarization, or metadata extraction.
+The public build has no source-document upload workflow. The beta PDF Packet Lab retrieves only an acknowledged, already-public NARA Catalog presidential-library PDF from one exact official path; this does not authorize the use of a document or annotation whose handling status is uncertain. Opstalia cannot determine whether information is classified, and classification is not removed by OCR, transcription, paraphrase, summarization, or metadata extraction.
 
 There is no synchronization, connector, bridge, shared database, or network route between Opstalia 1.0 and **Opstalia-c**. A possible future closed-network system is outside the version 1.0 authorization and deployment boundary.
 
@@ -36,6 +36,30 @@ The orchestrator runs at most three generated NARA queries per source run, with 
 The Worker's rate limiter is best-effort and isolate-local; it is not a globally durable quota service. NARA's own per-key limit remains controlling.
 
 The optional `nara-cia-rg263` and `nara-state-rg59` beta profiles use this same API and persistence boundary. They send fixed available-online textual filters for RG 263 and RG 59 respectively. Explicit returned hierarchy must agree before Opstalia applies an RG-specific repository label; a hit with no returned group number remains generic NARA evidence and requires review. They do not search the native CIA or State FOIA reading rooms, do not include every agency-related record, and do not establish that a result was released through a particular mechanism. The RG 59 profile also excludes separate RG 84 Foreign Service Post holdings.
+
+### PDF Packet Lab (beta)
+
+The Packet Lab is not a presidential-library search engine, a scraper, a PDF upload tool, or a general official-file proxy. Version 1.0 accepts only:
+
+- a numeric NARA NAID;
+- a researcher-supplied canonical `https://catalog.archives.gov/id/<NAID>` record URL whose numeric path repeats the submitted NAID; and
+- a direct PDF under `https://catalog.archives.gov/medialz/presidential-libraries/`.
+
+The session validator does not independently query or fetch the Catalog record to prove that the media object is listed there. It validates the canonical URL/NAID form, restricts the PDF to the exact official path family, probes the live PDF, and signs the submitted values together against tampering. The signature is not association evidence. Researchers must verify the researcher-supplied relationship on the controlling NARA record page.
+
+Admission requires an accepted PDF content type and a valid `%PDF-` signature on the exact approved NARA path; redirects are rejected. The Worker sends `HEAD`, then starts a full `GET`, reads only the five-byte signature prefix, and cancels that admission response. NARA or Cloudflare may omit a Worker-visible length or ETag. A reported size above 100 MiB is rejected, and the later content stream is terminated if it crosses the hard 100 MiB limit. A NARA outage, changed path, inconsistent headers, a malformed PDF, or a browser/relay timeout can prevent access even when the file opens through ordinary navigation.
+
+Opening a packet downloads the complete validated source through Cloudflare into browser memory before PDF.js can parse and slice it locally. The browser verifies the received signature, records actual byte length, and computes SHA-256. A large or structurally complex PDF can therefore be slow, exhaust device memory, fail in PDF.js, or make an all-page text scan impractical. Mobile browsers and low-memory devices may fail well below 100 MiB. The ceiling is an application safety limit, not a completeness promise or Cloudflare platform maximum.
+
+The deterministic scan streams only text already embedded in the PDF. It retains no more than 50,000 characters per page, 32 Mi characters across one scan, or 5,000 pages; reaching a ceiling leaves later or truncated pages for manual review and records that the scan was limited. It does not perform OCR, handwriting recognition, image understanding, or AI analysis. Image-only pages, broken character maps, unusual encodings, columns, stamps, marginalia, and poor source text can yield empty, scrambled, or misleading output. Researchers must inspect page images and define or correct boundaries manually.
+
+Pattern-detected boundaries are proposals. Common memcon, telcon, memorandum, subject, participant, date, end-marker, and withdrawal-sheet patterns can miss documents or divide a packet incorrectly. A `page_range` means only that the researcher located content pages in this PDF. A `described_item` means that a sheet or finding aid describes an item whose content pages have not been identified; the stated extent is not an inferred page range and no derivative PDF is available for it. A manually created described item defaults to `not_determined`; only a visible embedded-text withdrawal/redaction-sheet pattern supports an automatic `withdrawal_notice_only` proposal. Rejected proposals remain part of the local review record.
+
+Beta derivative export downloads the complete admitted source a second time under a separate three-requests-per-minute rate scope. A cancellable `pdf-lib` Web Worker computes SHA-256 over that second copy and refuses export unless it matches the source hash computed during opening; it is terminated after two minutes. It rebuilds the reviewed page range into a new PDF and removes each copied page's `/AA` additional-action dictionary and `/Annots` annotation array. Encrypted, malformed, very complex, or memory-intensive files can fail. Sources above 100 MiB are unsupported by the Packet Lab, including viewing, text search, manifests, and derivative generation.
+
+A derivative changes the file structure and metadata, strips page actions and annotations, and is intentionally not byte-identical. It is not an official source file, certified copy, preservation object, authenticity determination, or new agency release. A page range does not prove that it is an official standalone document, that attachments are complete, that pagination is original, or that the material was released in full. Preserve and cite the official PDF and the separately researcher-supplied Catalog locator; first confirm their association on the Catalog page. Official source records and agency determinations control.
+
+Saved packet registers are browser-local manifests only. They can contain locators, any available source validators, received size, browser-computed source SHA-256, page and scan counts, researcher decisions and notes, and derivative hashes. Opstalia does not persist source PDF bytes, rendered pages, thumbnails, embedded page text, or transport tokens. Reopening requires a new live session and a new full-source transfer. The saved source hash and reviewed decisions are retained only when actual received length and newly computed SHA-256 agree; otherwise every non-rejected decision becomes a proposal requiring re-review, while an earlier rejection remains recorded. A matching hash proves only that the received byte sequence matches the saved one, not that the file is authentic, complete, or correctly associated with the supplied Catalog record.
 
 ### GovInfo
 
@@ -101,7 +125,7 @@ Opstalia metadata, snippets, release status, redaction findings, or provenance.
 
 CIA is marked temporarily unavailable. At validation, the official Reading Room self-redirected and CIA.gov reported that search was unavailable. Opstalia can prepare copyable terms and provide official CIA resources/status, publications, and retry links, but those actions do not search the Reading Room and are not equivalent to CIA FOIA corpus coverage. The separate NARA RG 263 profile does not change this native-source status.
 
-State FOIA, presidential libraries, FBI Vault, NSA, DIA, DoD, DOE OpenNet, DOJ, ODNI, DHS, NRO, Treasury, Commerce, the military departments, and many other registered sources remain manual adapters. For State FOIA, Opstalia generates a user-initiated, prefilled official search handoff using applicable terms, dates, sender, recipient, case number, and document type. It does not call State from the backend or scrape the results because `foia.state.gov/robots.txt` disallows automated access to the entire site and no documented public search API was validated. The separate NARA RG 59 profile does not change this native-source status.
+State FOIA, presidential-library discovery, FBI Vault, NSA, DIA, DoD, DOE OpenNet, DOJ, ODNI, DHS, NRO, Treasury, Commerce, the military departments, and many other registered sources remain manual adapters. The PDF Packet Lab adds narrow viewing and researcher packet analysis after an official NARA presidential-library PDF has been located; it does not automate presidential-library search or change source-coverage status. For State FOIA, Opstalia generates a user-initiated, prefilled official search handoff using applicable terms, dates, sender, recipient, case number, and document type. It does not call State from the backend or scrape the results because `foia.state.gov/robots.txt` disallows automated access to the entire site and no documented public search API was validated. The separate NARA RG 59 profile does not change this native-source status.
 
 A manual adapter does not return normalized results. It opens the official search system and preserves the source in the research plan; the researcher must evaluate any relevant official record. A manually discovered locator can be recorded only after the researcher confirms that the material is unclassified and publicly released. The locator must use HTTPS on the source registry's approved official domain and match the adapter-specific direct record-page or record-file path policy. Domain approval alone is not enough: generic search-results, status, home, publications, collection, and other navigation pages are research leads and are rejected as primary evidence. Opstalia does not silently scrape a source whose interface, terms, or robots directives make automation unreliable.
 
@@ -146,6 +170,8 @@ Source metadata can be incomplete or inconsistent. “Released,” “declassifi
 ## Local storage and private mode
 
 Projects are stored in the current browser's IndexedDB. There are no accounts, cloud backup, cross-browser synchronization, or collaborative editing. Clearing site data removes local projects unless the researcher exported them first.
+
+PDF packet projects follow the same local-only model but persist a manifest, not the packet. Embedded text search must run again after reopening. The browser computes and retains source SHA-256 whenever a packet opens, but that hash establishes only byte continuity between received copies; it does not establish archival authenticity, completeness, release status, or the researcher-supplied record association.
 
 GitHub Pages project sites share their origin. Local browser storage is a convenience, not an approved repository for restricted data.
 

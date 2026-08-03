@@ -289,6 +289,9 @@ Also confirm:
 - native CIA and State remain manual/unavailable, while the separate opt-in NARA RG 263/RG 59 profiles are labeled as NARA-only discovery;
 - the NARA JFK index is opt-in, links only to official release-path PDFs, and contains no Doctly/GitHub evidence URLs;
 - streamed request/response limits and source-specific file-to-record ID checks pass their security tests;
+- Packet Lab health reports only Boolean `pdfRelayConfigured` readiness, no R2,
+  KV, D1, Durable Object, or PDF cache binding is configured, and the deployed
+  relay enforces prefix-only admission plus a hard 100 MiB full-stream cap;
 - GovInfo, NTRS, and OSTI carry their publication/STI—not declassification-proof—caveats; and
 - the application states that Opstalia-c is not connected.
 
@@ -323,14 +326,19 @@ Then verify in a browser:
 2. the independent-site and unclassified notices are visible;
 3. a search cannot proceed without acknowledgement;
 4. FRUS, ISCAP, NDC, and the optional NARA JFK index return local-index results for known fixture terms or RIFs;
-5. Worker health reports version `1.2.0`, the registered adapters, and only Boolean secret readiness;
+5. Worker health reports version `1.2.0`, the registered adapters, and only Boolean secret readiness, including `pdfRelayConfigured` without exposing `RATE_LIMIT_SALT`;
 6. when `NARA_API_KEY` is installed, an exact general-NARA NAID search produces a transient official result; after explicitly opting into each RG profile, its results remain visibly NARA-only;
 7. when `GOVINFO_API_KEY` is installed, GovInfo runs without implying declassification evidence;
 8. NTRS and OSTI run through the Worker without a source API key and retain their STI/publication caveats;
 9. native CIA and State are clearly manual/unavailable, not automated;
-10. an unofficial-domain fixture is rejected;
-11. project save, export, import, comparison, and private mode work; and
-12. the browser network panel contains no source API key.
+10. Packet Lab admission accepts only the exact approved NARA host/path and a matching researcher-supplied NAID record locator, performs `HEAD` plus a prefix-only GET/cancel, and labels the association unverified;
+11. opening an eligible packet makes one bounded full-source transfer, computes source SHA-256 in the browser, and gives PDF.js local page access without byte-range requests;
+12. a source whose reported or streamed body exceeds 100 MiB is rejected, including when no usable upstream length is visible;
+13. derivative export makes a second complete source transfer and refuses output when that copy's SHA-256 differs from the opening hash;
+14. neither Worker configuration nor runtime contains an R2, KV, D1, Durable Object, PDF cache, or persisted PDF body;
+15. an unofficial-domain fixture is rejected;
+16. project save, export, import, comparison, and private mode work; and
+17. the browser network panel contains no source API key.
 
 Run a remote bundle check:
 
