@@ -29,6 +29,7 @@ interface OpstaliaDatabase extends DBSchema {
 }
 
 const DATABASE_NAME = "opstalia-v1-research";
+const LEGACY_DEMO_PURGE_MARKER = "legacy-auto-loaded-demo-projects-cleared-v1";
 const NARA_API_SOURCE_IDS = new Set([
   "nara",
   "nara-cia-rg263",
@@ -182,6 +183,29 @@ export async function saveProject(project: SearchProject): Promise<void> {
 export async function listProjects(): Promise<SearchProject[]> {
   const database = await db();
   return (await database.getAllFromIndex("projects", "by-updated")).reverse();
+}
+
+/**
+ * Removes only checked-in demonstration fixtures that an earlier public build
+ * could persist after researcher interaction. The marker makes this a one-time
+ * migration, so a researcher may explicitly install the demos again later.
+ */
+export async function purgeLegacyAutoLoadedDemoProjects(): Promise<number> {
+  const database = await db();
+  if (await database.get("preferences", LEGACY_DEMO_PURGE_MARKER)) return 0;
+
+  const fixtureIds = (await database.getAll("projects"))
+    .filter((project) => project.fixture === true)
+    .map((project) => project.id);
+  const transaction = database.transaction(["projects", "preferences"], "readwrite");
+  const projects = transaction.objectStore("projects");
+  const preferences = transaction.objectStore("preferences");
+  await Promise.all([
+    ...fixtureIds.map((id) => projects.delete(id)),
+    preferences.put({ key: LEGACY_DEMO_PURGE_MARKER, value: new Date().toISOString() })
+  ]);
+  await transaction.done;
+  return fixtureIds.length;
 }
 
 export async function getProject(id: string): Promise<SearchProject | undefined> {

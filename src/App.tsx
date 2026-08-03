@@ -1,7 +1,7 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { SearchProject } from "./core/types";
 import { createDemoProjects } from "./data/demo-projects";
-import { listProjects, saveProject } from "./persistence/database";
+import { listProjects, purgeLegacyAutoLoadedDemoProjects, saveProject } from "./persistence/database";
 import { AboutPage, PrivacyPage, SecurityPage } from "./pages/InfoPages";
 import { ComparePage } from "./pages/ComparePage";
 import { CoveragePage } from "./pages/CoveragePage";
@@ -63,7 +63,7 @@ function initialView(): View {
 export default function App() {
   const builtInDemos = useMemo(createDemoProjects, []);
   const [view, setView] = useState<View>(initialView);
-  const [projects, setProjects] = useState<SearchProject[]>(builtInDemos);
+  const [projects, setProjects] = useState<SearchProject[]>([]);
   const [currentProject, setCurrentProject] = useState<SearchProject | undefined>();
   const [compareIds, setCompareIds] = useState<string[]>([]);
   const [mobileOpen, setMobileOpen] = useState(false);
@@ -72,11 +72,10 @@ export default function App() {
   const hasMounted = useRef(false);
 
   const refreshProjects = useCallback(async () => {
+    await purgeLegacyAutoLoadedDemoProjects();
     const stored = await listProjects();
-    const merged = new Map<string, SearchProject>(builtInDemos.map((project) => [project.id, project]));
-    for (const project of stored) merged.set(project.id, project);
-    setProjects([...merged.values()]);
-  }, [builtInDemos]);
+    setProjects(stored);
+  }, []);
 
   useEffect(() => {
     void refreshProjects();

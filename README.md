@@ -340,7 +340,7 @@ The screenshots below show the production frontend build with the Worker intenti
 
 ### Research dashboard
 
-![Opstalia dashboard showing the Internet-only security boundary, source coverage, and demonstration projects](docs/screenshots/dashboard.png)
+![Opstalia dashboard showing the Internet-only security boundary and source coverage](docs/screenshots/dashboard.png)
 
 ### Unclassified search form
 
