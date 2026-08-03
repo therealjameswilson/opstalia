@@ -38,7 +38,7 @@ jobs:
         run: npm ci
 
       - name: Configure GitHub Pages
-        uses: actions/configure-pages@v5
+        uses: actions/configure-pages@v6
 
       - name: Confirm no credential is checked into the frontend
         run: npm run secret:scan
