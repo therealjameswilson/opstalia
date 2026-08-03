@@ -321,12 +321,15 @@ code {
 .hero {
   position: relative;
   display: grid;
-  min-height: 520px;
+  min-height: 640px;
   margin: -2rem 0 3rem;
   padding: clamp(2.3rem, 5vw, 5.5rem);
-  grid-template-columns: minmax(0, 1.55fr) minmax(280px, 0.65fr);
+  grid-template-areas:
+    "copy art"
+    "boundary art";
+  grid-template-columns: minmax(340px, 0.82fr) minmax(460px, 1.18fr);
   align-items: center;
-  gap: clamp(2rem, 6vw, 7rem);
+  gap: clamp(1.6rem, 3.5vw, 4rem) clamp(2rem, 5vw, 6rem);
   overflow: hidden;
   color: white;
   background:
@@ -353,6 +356,46 @@ code {
 .hero > * {
   position: relative;
   z-index: 1;
+}
+
+.hero-copy {
+  grid-area: copy;
+  align-self: end;
+}
+
+.hero-art {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 3 / 2;
+  grid-area: art;
+  align-self: center;
+  margin: 0;
+  overflow: hidden;
+  background: var(--navy-950);
+  border: 1px solid rgba(242, 231, 200, 0.28);
+  box-shadow: 0 22px 54px rgba(0, 0, 0, 0.34);
+}
+
+.hero-art::after {
+  position: absolute;
+  inset: 0;
+  content: "";
+  pointer-events: none;
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 255, 255, 0.08),
+    inset 0 -80px 100px rgba(7, 21, 34, 0.12);
+}
+
+.hero-art img {
+  display: block;
+  width: 100%;
+  height: auto;
+  transform: translateY(-17%);
+}
+
+.hero .boundary-card {
+  grid-area: boundary;
+  align-self: start;
 }
 
 .hero h1 {
@@ -2288,6 +2331,15 @@ details summary {
 
   .hero {
     min-height: auto;
+    grid-template-areas:
+      "art"
+      "copy"
+      "boundary";
+  }
+
+  .hero-art {
+    width: min(100%, 760px);
+    justify-self: center;
   }
 
   .boundary-card {
@@ -2347,6 +2399,12 @@ details summary {
   .hero {
     margin-top: -1rem;
     padding: 2rem 1.3rem;
+  }
+
+  .hero-art {
+    width: calc(100% + 2.6rem);
+    margin: -2rem -1.3rem 0;
+    border-width: 0 0 1px;
   }
 
   .metrics,

@@ -31,7 +31,7 @@ export function DashboardPage({ projects, onNavigate, onOpenProject }: Dashboard
   return (
     <>
       <section className="hero">
-        <div>
+        <div className="hero-copy">
           <p className="eyebrow">OPSTALIA 1.0 · UNCLASSIFIED INTERNET APPLICATION</p>
           <h1>Search the official record of declassification.</h1>
           <p>
@@ -43,6 +43,17 @@ export function DashboardPage({ projects, onNavigate, onOpenProject }: Dashboard
             <button className="button button-secondary" onClick={() => onNavigate("coverage")}>Review source coverage</button>
           </div>
         </div>
+        <figure className="hero-art">
+          <img
+            src={`${import.meta.env.BASE_URL}images/opstalia-hero.png`}
+            alt={'A person overlooking a dark ocean beneath a sign that reads “The world is yours…”'}
+            width="1500"
+            height="1500"
+            loading="eager"
+            fetchPriority="high"
+            decoding="async"
+          />
+        </figure>
         <aside className="boundary-card" aria-label="System boundary">
           <span className="stamp-outline">PUBLIC · UNCLASSIFIED</span>
           <h2>Internet-only in version 1.0</h2>
