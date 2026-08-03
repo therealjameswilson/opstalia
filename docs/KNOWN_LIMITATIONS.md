@@ -181,4 +181,4 @@ Private mode prevents Opstalia project persistence and keeps current project sta
 
 Exports reflect the data and inferences present at generation time. They do not freeze later changes on official websites. Printable HTML can be printed to PDF by the browser; Opstalia does not generate an archival-quality server-side PDF.
 
-Demonstration projects are checked-in fixtures with official links and a fixed retrieval date. They exercise workflows; they are not live search results and must be rechecked at the official source before substantive use.
+Demonstration projects are opt-in checked-in fixtures with official links and a fixed retrieval date. They are not preloaded into Saved Records or the browser-local workspace. Installing them from Search Projects exercises workflows; they are not live search results and must be rechecked at the official source before substantive use.

@@ -1,6 +1,12 @@
 import { expect, test } from "@playwright/test";
 import { readFile, writeFile } from "node:fs/promises";
 
+async function installDemonstrationProjects(page: import("@playwright/test").Page) {
+  await page.goto("#projects");
+  await page.getByRole("button", { name: "Install demonstration projects" }).click();
+  await expect(page.getByText("Exact match: Nixon and Elvis photograph", { exact: true })).toBeVisible();
+}
+
 test.describe("Opstalia research workflows", () => {
   test("guards the presidential-library PDF Packet Lab and provides a verified official example", async ({ page }) => {
     await page.goto("#pdf-packets");
@@ -260,8 +266,61 @@ test.describe("Opstalia research workflows", () => {
     await expect(stateRow.getByRole("link", { name: /Open State FOIA search/ })).toBeVisible();
   });
 
+  test("keeps demonstration records out of a fresh browser-local workspace", async ({ page }) => {
+    await page.goto("#saved");
+    await expect(page.getByRole("heading", { name: "No saved records" })).toBeVisible();
+    await expect(page.getByText("Photograph of Richard M. Nixon and Elvis Presley at the White House")).toHaveCount(0);
+    await expect(page.getByText("Reykjavik Memorandum of Conversation", { exact: true })).toHaveCount(0);
+
+    await page.goto("#projects");
+    await expect(page.getByRole("heading", { name: "No stored projects" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Install demonstration projects" })).toBeVisible();
+
+    await page.getByRole("button", { name: "Install demonstration projects" }).click();
+    await expect(page.getByText("Exact match: Nixon and Elvis photograph", { exact: true })).toBeVisible();
+    page.once("dialog", (dialog) => void dialog.accept());
+    await page.getByRole("button", { name: "Clear all local data" }).click();
+    await expect(page.getByRole("heading", { name: "No stored projects" })).toBeVisible();
+    await page.goto("#saved");
+    await expect(page.getByRole("heading", { name: "No saved records" })).toBeVisible();
+  });
+
+  test("removes legacy auto-loaded fixtures without deleting ordinary projects", async ({ page }) => {
+    await installDemonstrationProjects(page);
+    await page.evaluate(async () => {
+      const database = await new Promise<IDBDatabase>((resolve, reject) => {
+        const request = indexedDB.open("opstalia-v1-research");
+        request.onsuccess = () => resolve(request.result);
+        request.onerror = () => reject(request.error);
+      });
+      const fixture = await new Promise<Record<string, unknown>>((resolve, reject) => {
+        const request = database.transaction("projects", "readonly").objectStore("projects").get("demo-exact-naid");
+        request.onsuccess = () => resolve(request.result as Record<string, unknown>);
+        request.onerror = () => reject(request.error);
+      });
+      const transaction = database.transaction(["projects", "preferences"], "readwrite");
+      transaction.objectStore("projects").put({
+        ...fixture,
+        id: "researcher-project-preserved-by-demo-cleanup",
+        name: "Researcher project preserved by demo cleanup",
+        fixture: false
+      });
+      transaction.objectStore("preferences").delete("legacy-auto-loaded-demo-projects-cleared-v1");
+      await new Promise<void>((resolve, reject) => {
+        transaction.oncomplete = () => resolve();
+        transaction.onerror = () => reject(transaction.error);
+        transaction.onabort = () => reject(transaction.error);
+      });
+      database.close();
+    });
+
+    await page.reload();
+    await expect(page.getByText("Researcher project preserved by demo cleanup", { exact: true })).toBeVisible();
+    await expect(page.getByText("Exact match: Nixon and Elvis photograph", { exact: true })).toHaveCount(0);
+  });
+
   test("opens saved records, compares official versions, and records a version decision", async ({ page }) => {
-    await page.goto("");
+    await installDemonstrationProjects(page);
     const menu = page.getByRole("button", { name: /Menu/ });
     if (await menu.isVisible()) await menu.click();
     await page.getByRole("button", { name: "Saved Records" }).click();
@@ -288,7 +347,7 @@ test.describe("Opstalia research workflows", () => {
   });
 
   test("exports Markdown and round-trips a complete project JSON", async ({ page }) => {
-    await page.goto("#projects");
+    await installDemonstrationProjects(page);
     const exactProject = page.locator(".folder-card").filter({ hasText: "Exact match: Nixon and Elvis photograph" });
     const jsonDownloadPromise = page.waitForEvent("download");
     await exactProject.getByRole("button", { name: "Export JSON" }).click();
@@ -338,7 +397,7 @@ test.describe("Opstalia research workflows", () => {
   });
 
   test("keeps an imported private project memory-only", async ({ page }, testInfo) => {
-    await page.goto("#projects");
+    await installDemonstrationProjects(page);
     const exactProject = page.locator(".folder-card").filter({ hasText: "Exact match: Nixon and Elvis photograph" });
     const jsonDownloadPromise = page.waitForEvent("download");
     await exactProject.getByRole("button", { name: "Export JSON" }).click();
@@ -365,6 +424,7 @@ test.describe("Opstalia research workflows", () => {
     page.on("response", async (response) => {
       if (response.request().resourceType() === "script") responses.push(await response.text());
     });
+    await installDemonstrationProjects(page);
     await page.goto("#saved");
     await page.waitForLoadState("networkidle");
     const joined = responses.join("\n");

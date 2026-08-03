@@ -2,6 +2,13 @@
 
 All notable changes to Opstalia are documented in this file. The project follows [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Changed
+
+- Made checked-in demonstration projects opt-in instead of automatically presenting their records as browser-saved research.
+- Added a one-time, fixture-only cleanup for demonstration projects persisted by earlier builds; ordinary researcher projects and saved records are left untouched.
+
 ## [1.2.0] - 2026-07-30
 
 ### Added
