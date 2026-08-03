@@ -8,6 +8,16 @@ test.describe("Opstalia research workflows", () => {
     await expect(page.getByText("UNCLASSIFIED INTERNET APPLICATION", { exact: true })).toBeVisible();
     await expect(page.getByRole("heading", { name: "Internet-only in version 1.0" })).toBeVisible();
     await expect(page.getByText("Opstalia 1.0 does not connect or synchronize with Opstalia-c or any closed network.")).toBeVisible();
+    const heroImage = page.getByRole("img", {
+      name: "A person overlooking a dark ocean beneath a sign that reads “The world is yours…”"
+    });
+    await expect(heroImage).toBeVisible();
+    await expect.poll(async () => heroImage.evaluate((image: HTMLImageElement) => image.complete && image.naturalWidth)).toBeGreaterThan(0);
+    const dimensions = await page.evaluate(() => ({
+      viewport: window.innerWidth,
+      document: document.documentElement.scrollWidth
+    }));
+    expect(dimensions.document).toBeLessThanOrEqual(dimensions.viewport);
   });
 
   test("requires acknowledgement and builds an editable exact-NAID plan", async ({ page }) => {
