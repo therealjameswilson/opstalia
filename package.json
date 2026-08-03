@@ -60,9 +60,7 @@
     "wrangler": "4.118.0"
   },
   "overrides": {
-    "miniflare": {
-      "undici": "7.29.0"
-    }
+    "undici@7.28.0": "7.29.0"
   },
   "engines": {
     "node": ">=22.13"
