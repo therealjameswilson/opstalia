@@ -8,6 +8,7 @@ type AxeResult = {
 const pages = [
   ["dashboard", ""],
   ["new search", "#new-search"],
+  ["PDF Packet Lab", "#pdf-packets"],
   ["source coverage", "#coverage"],
   ["exemption guide", "#exemptions"],
   ["security", "#security"],

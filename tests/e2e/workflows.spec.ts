@@ -2,6 +2,23 @@ import { expect, test } from "@playwright/test";
 import { readFile, writeFile } from "node:fs/promises";
 
 test.describe("Opstalia research workflows", () => {
+  test("guards the presidential-library PDF Packet Lab and provides a verified official example", async ({ page }) => {
+    await page.goto("#pdf-packets");
+    await expect(page.getByRole("heading", { name: "PDF Packet Lab" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Public, unclassified official copies only" })).toBeVisible();
+    await expect(page.getByText("It is not connected to Opstalia-c or any closed network.")).toBeVisible();
+    await expect(page.locator('input[type="file"]')).toHaveCount(0);
+    const open = page.getByRole("button", { name: "Open PDF Packet Lab" });
+    await expect(open).toBeDisabled();
+    await page.getByRole("button", { name: "Use verified Bush 41 example" }).click();
+    await expect(page.getByLabel("NARA NAID")).toHaveValue("470761856");
+    await expect(page.getByLabel("NARA Catalog record URL (researcher supplied)")).toHaveValue("https://catalog.archives.gov/id/470761856");
+    await expect(page.getByLabel("Direct NARA presidential-library packet PDF")).toHaveValue(/catalog\.archives\.gov\/medialz\/presidential-libraries/);
+    await expect(page.getByText(/does not establish that the supplied Catalog record lists the supplied PDF/i)).toBeVisible();
+    await page.getByLabel(/I confirm that this is an unclassified, publicly released official copy/).check();
+    await expect(page.getByText(/not a new official release/i)).toHaveCount(0);
+  });
+
   test("states the public unclassified boundary on every entry point", async ({ page }) => {
     await page.goto("");
     await expect(page.getByText("Opstalia is an independent research tool")).toBeVisible();

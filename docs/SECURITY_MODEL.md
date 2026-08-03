@@ -1,7 +1,7 @@
 # Opstalia 1.0 security model
 
 Status: public-release model
-Last reviewed: 2026-07-29
+Last reviewed: 2026-08-03
 
 ## Executive boundary
 
@@ -16,7 +16,10 @@ regular Internet. It is not an authorized information system for:
 - a source document whose handling status is uncertain.
 
 The public application accepts unclassified metadata and sanitized search terms
-only. It does not accept document uploads.
+only. It does not accept document uploads. Its beta PDF Packet Lab accepts only
+an acknowledged public NARA Catalog locator and retrieves the corresponding
+official presidential-library PDF through a narrow bounded full-file relay; it does not
+accept an arbitrary URL, local file, pasted document, or uncertain source.
 
 There is no connection, bridge, shared identity, shared datastore,
 synchronization protocol, message queue, export automation, or network route
@@ -43,7 +46,10 @@ The system is designed to:
 7. preserve provenance and make algorithmic inferences visible and correctable;
 8. render untrusted source text as inert text;
 9. limit request size, rate, duration, and outbound destinations; and
-10. state residual risk without claiming anonymity or authorization.
+10. confine presidential-library PDF access to one exact official path, keep PDF
+    parsing in a constrained browser context, and persist manifests rather than
+    source bytes; and
+11. state residual risk without claiming anonymity or authorization.
 
 Availability of every government repository, exhaustive discovery, and
 protection against a user intentionally entering restricted material are not
@@ -53,13 +59,14 @@ security objectives the public application can guarantee.
 
 | Component | Runs where | Function | Persistent application data |
 | --- | --- | --- | --- |
-| React/Vite frontend | GitHub Pages and the user's browser | Search planning, local-index search, normalization display, comparison, human review, and exports | Projects and preferences in IndexedDB when private mode is off |
+| React/Vite frontend | GitHub Pages and the user's browser | Search planning, local-index search, normalization display, comparison, human review, PDF.js packet viewing/text-layer scanning, and exports | Projects, preferences, and packet manifests in IndexedDB when private mode is off; no PDF bytes, rendered pages, extracted page text, or relay tokens |
 | FRUS index | Static GitHub Pages asset | Pinned TEI-derived search index for three documented FRUS volumes | Checked-in public build artifact |
 | ISCAP index | Static GitHub Pages asset | Pinned official release-table index | Checked-in public build artifact |
 | NDC index | Static GitHub Pages asset | Pinned official release-list index | Checked-in public build artifact |
 | NARA JFK release-file index | Static GitHub Pages asset | Pinned official filename/RIF manifest with NARA PDF links | Checked-in public build artifact; no PDF or Doctly text |
-| Cloudflare Worker | Cloudflare edge | Dispatch fixed official-API adapters; keep NARA and GovInfo keys server-side; mediate NTRS/OSTI CORS | None configured; an ephemeral in-memory rate-limit map |
+| Cloudflare Worker | Cloudflare edge | Dispatch fixed official-API adapters; keep NARA and GovInfo keys server-side; mediate NTRS/OSTI CORS; admit and stream one exact NARA presidential-library PDF path through short-lived signed sessions | None configured; an ephemeral in-memory rate-limit map; no PDF store or cache |
 | NARA Catalog API | NARA | Official Catalog search and metadata | Controlled by NARA |
+| NARA Catalog presidential-library media | NARA | Official public PDF bytes for an admitted `catalog.archives.gov/medialz/presidential-libraries/…pdf` locator | Controlled by NARA |
 | GovInfo Search Service | Government Publishing Office | Official publication discovery | Controlled by GPO |
 | NASA NTRS and OSTI.GOV APIs | NASA and DOE OSTI | Official public scientific and technical information discovery | Controlled by each agency |
 | Manual official sources | Source agencies | Researcher-directed search or viewing | Controlled by each source |
@@ -92,6 +99,33 @@ flowchart LR
     W -->|"normalized transient results; no-store"| B
     B -->|"user-initiated navigation; prepared terms/filters when displayed"| M
 ```
+
+### PDF Packet Lab
+
+```mermaid
+flowchart LR
+    B["Researcher's browser<br/>public unclassified locator only"]
+    W["Cloudflare Worker<br/>strict admission + bounded full-file relay"]
+    N["NARA Catalog media<br/>approved presidential-library PDF"]
+    P["PDF.js + browser Web Worker<br/>in-memory view, embedded text, beta derivative"]
+    I["IndexedDB<br/>manifest only when non-private"]
+
+    B -->|"POST researcher-supplied NAID + canonical record/PDF URLs + acknowledgement"| W
+    W -->|"HEAD + full GET; read 5-byte prefix, then cancel; no redirects"| N
+    W -->|"two-hour HMAC-signed session"| B
+    P -->|"GET one bounded full stream with signed token"| W
+    W -->|"full GET; hard 100 MiB stream cap"| N
+    N -->|"official PDF bytes"| W
+    W -->|"streamed bytes; no-store"| P
+    P -->|"locators, reviewed ranges, scan counts, notes, hashes"| I
+```
+
+No source PDF is uploaded to Opstalia. Admission reads only the `%PDF-` prefix
+from its GET response and cancels the rest. Opening then streams one complete
+copy from the approved NARA host through Cloudflare into browser memory; creating
+a derivative streams a second complete copy. Worker application code does not
+parse, OCR, transform, index, cache, store, or log those bytes. Provider
+infrastructure may retain ordinary telemetry outside the application's control.
 
 ### Build-time source refresh
 
@@ -181,6 +215,70 @@ The frontend origin is a scheme/host origin, not a GitHub Pages path. Production
 CORS therefore allows `https://therealjameswilson.github.io`; the application
 path remains `/opstalia/`.
 
+## Exact PDF Packet Lab request path
+
+1. The researcher enters a numeric NARA NAID, a researcher-supplied canonical record URL
+   `https://catalog.archives.gov/id/<NAID>`, and a direct
+   `https://catalog.archives.gov/medialz/presidential-libraries/…pdf` URL, then
+   affirms that the source is an unclassified, publicly released official copy.
+   No local file or PDF content is submitted. The researcher supplies the
+   record-to-PDF association and must verify it on the official Catalog page.
+2. The browser POSTs that bounded JSON object to `/api/pdf/session` with
+   credentials omitted and cache disabled. The Worker applies the normal origin,
+   JSON, 16 KiB body, error-redaction, and no-store controls plus a separate
+   session rate limit of 10 requests per minute and a 20-second timeout.
+3. Packet admission requires source ID `presidential-libraries`; exact hostname
+   `catalog.archives.gov`; the `/medialz/presidential-libraries/` PDF path; no
+   credentials, port, query, fragment, traversal, nested encoding, or disallowed
+   path characters; and a record path whose `/id/<NAID>` component repeats the
+   submitted numeric NAID. Domain approval by itself is insufficient. This is
+   URL-form and numeric-consistency validation: the Worker does not fetch the
+   Catalog record or prove that it lists the PDF.
+4. The Worker performs a no-redirect `HEAD`, then starts a no-redirect full
+   `GET`, reads exactly the first five bytes needed to verify `%PDF-`, and
+   cancels that admission body. It requires a supported PDF content type. A
+   Worker-visible length greater than 100 MiB is rejected, but NARA or
+   Cloudflare may omit a usable length, ETag, or Last-Modified value.
+5. If admission succeeds, the Worker creates a two-hour HMAC-SHA-256 token using
+   the server-side `RATE_LIMIT_SALT`. Its signed payload contains the source ID,
+   NAID, canonical record and PDF URLs, any available ETag/last-modified
+   validators, and expiry. Signing those values together prevents later
+   tampering but does not establish an archival association. The token is
+   integrity-protected, not encrypted, and contains no server secret. Rotating
+   `RATE_LIMIT_SALT` invalidates active sessions.
+6. The browser requests `/api/pdf/content?token=…` with the packet-view purpose.
+   The content route verifies signature and expiry, rejects every `Range` header,
+   and cannot accept or change the upstream URL.
+7. The Worker starts a new no-redirect full `GET` to the signed NARA URL. It
+   requires status `200` and an accepted content type, checks any available
+   session length or validator, and passes the body through with no-store
+   headers. A transform terminates the response after 100 MiB even when neither
+   NARA nor Cloudflare exposed a usable `Content-Length`. The Worker does not
+   retain the stream in an application buffer, durable store, cache, or log.
+8. The browser collects that one bounded stream in memory, verifies `%PDF-`,
+   records the actual received length, computes SHA-256, and gives the completed
+   bytes to PDF.js. PDF.js performs page access and embedded-text extraction
+   locally without further source requests.
+9. A beta derivative request deliberately starts a second complete source
+   stream under a separate three-requests-per-minute rate scope and the same
+   100 MiB cap. A local Web Worker computes the second copy's source SHA-256 and
+   refuses export unless it matches the hash computed during opening. `pdf-lib`
+   then rebuilds the reviewed page range, removes each copied page's `/AA`
+   additional-action dictionary and `/Annots` annotation array, and computes
+   derivative SHA-256. The processor can be cancelled and is terminated after
+   two minutes. The research derivative is not byte-identical to the official
+   source.
+
+PDF.js reads embedded text page by page from the in-memory source rather than
+creating one unbounded text object.
+Opstalia retains at most 50,000 characters per page, 32 Mi characters across a
+scan, and 5,000 scanned pages. Reaching a ceiling records a limitation and leaves
+later or truncated pages for manual review; no OCR or AI fallback is attempted.
+
+The 100 MiB full-stream ceiling and route rate limits are Opstalia application
+controls, not claims about Cloudflare platform maximums. Sources larger than
+100 MiB are unsupported by the Packet Lab.
+
 ## Local-index request path
 
 FRUS, ISCAP, NDC, and NARA JFK indexes are fetched as same-origin static frontend assets
@@ -243,7 +341,10 @@ which is why Opstalia storage must never hold secrets or restricted material.
 Cloudflare terminates the Worker HTTPS request and makes network metadata
 available to the Worker. Application code uses an address-derived hash for rate
 limiting but does not log or durably store the address. Cloudflare may maintain
-independent infrastructure records.
+independent infrastructure records. A Packet Lab content token travels in the
+request URL and is therefore treated as a short-lived bearer capability even
+though application code does not log it; researchers should not copy or share
+the relay URL.
 
 ### Official repositories
 
@@ -297,6 +398,12 @@ A researcher may override status with a recorded basis. A public digital object
 with no visible redaction is otherwise `not_determined`; absence of a visible
 black box is not full-release evidence.
 
+A researcher-created Packet Lab `described_item` also defaults to
+`not_determined`. The deterministic detector may propose
+`withdrawal_notice_only` only when visible embedded text matches the configured
+withdrawal/redaction-sheet heading. The proposal remains subject to human review
+and does not claim that the underlying content pages are present.
+
 Release markings, match scores, and version relationships remain inferences
 with visible reasons and human-review controls.
 
@@ -304,11 +411,13 @@ with visible reasons and human-review controls.
 
 ### Secrets
 
-`NARA_API_KEY` and, when GovInfo is enabled, `GOVINFO_API_KEY` are installed only through:
+`NARA_API_KEY`, when GovInfo is enabled `GOVINFO_API_KEY`, and the production
+`RATE_LIMIT_SALT` are installed only through:
 
 ```sh
 wrangler secret put NARA_API_KEY --config worker/wrangler.toml
 wrangler secret put GOVINFO_API_KEY --config worker/wrangler.toml
+wrangler secret put RATE_LIMIT_SALT --config worker/wrangler.toml
 ```
 
 They must never be:
@@ -322,16 +431,20 @@ They must never be:
 - copied from another repository.
 
 The health response exposes only `naraSecretConfigured: true|false` and
-`govInfoSecretConfigured: true|false`. `ready: true` means the fixed adapter
-registry is reachable; it does not assert that every optional source key is
-installed. NTRS and OSTI remain usable without source API secrets.
+`govInfoSecretConfigured: true|false`, plus `pdfRelayConfigured: true|false` for
+the minimum `RATE_LIMIT_SALT` readiness check. `ready: true` means the fixed
+adapter registry is reachable; it does not assert that every optional source key
+or the relay secret is installed. NTRS and OSTI remain usable without source API
+secrets.
 
 ### Non-secret configuration
 
 `VITE_API_BASE`, `FRONTEND_ORIGIN`, `APP_ENV`, and the Worker URL are public
-deployment metadata. `RATE_LIMIT_SALT` should be a Worker secret in production
-because predictability weakens its usefulness, although it does not replace a
-credential or identity system.
+deployment metadata. `RATE_LIMIT_SALT` must be a high-entropy Worker secret of at
+least 16 characters in production because it derives hashed rate-limit keys and
+signs PDF relay sessions. It must never use a `VITE_` prefix, be committed, or be
+returned by health/error responses. The resulting token is a time-limited
+capability, not a user credential, identity system, or anonymity control.
 
 ### Error handling
 
@@ -345,6 +458,11 @@ paths.
 ### Backend
 
 The Worker does not persist searches, notes, source responses, or results.
+It also does not persist PDF session requests, tokens, validators, or PDF
+bodies. Admission retains only a five-byte prefix long enough to validate the
+signature and then cancels the response; view and derivative bodies are passed
+through without application buffering. It uses no PDF cache; relay responses are streamed and carry
+`Cache-Control: no-store, private, max-age=0`.
 Its current limiter is in a module-level map and therefore:
 
 - is ephemeral per Worker isolate;
@@ -371,6 +489,17 @@ saved with provenance. Permissible GovInfo, NTRS, and OSTI public records may
 also be retained in browser-local projects; this does not turn their
 publication/STI status into declassification evidence.
 
+A non-private PDF packet register stores only its validated official locators,
+NAID, actual received source size, any available validators, browser-computed
+source SHA-256, page count, scan counts, researcher-created or reviewed
+`page_range` and `described_item` entries, notes, and derivative hashes. PDF bytes, page images/canvases, thumbnails,
+extracted embedded text, and transport tokens are not written to IndexedDB. A
+private packet register remains in memory and disappears with the tab. When a
+saved register is reopened, the full source is transferred and hashed again.
+Reviewed decisions survive only if actual byte length and SHA-256 match the saved
+source; otherwise every non-rejected decision returns to `proposed` for
+re-review. A prior rejection remains recorded.
+
 ### Private mode
 
 Private mode is memory-only at the Opstalia project layer. Reloading or closing
@@ -386,6 +515,18 @@ downloads, provider logs, or device monitoring.
 - External links open with `noopener noreferrer`.
 - The comparison viewer uses a sandboxed iframe for approved official file
   URLs.
+- PDF Packet Lab page rendering uses local PDF.js over a completed in-memory
+  source, with `isEvalSupported: false`, XFA disabled,
+  annotations disabled, parser errors treated as failures, bounded page-image
+  work, and no source HTML insertion.
+- The deterministic packet scan consumes only PDF-embedded text and keeps it in
+  memory, bounded to 50,000 characters per page, 32 Mi characters total, and
+  5,000 pages; no OCR, AI provider, or external analysis endpoint receives it.
+- Eligible derivative generation uses a dedicated browser Web Worker and
+  `pdf-lib`; it removes copied-page `/AA` actions and `/Annots` annotations,
+  malformed/encrypted inputs fail closed, cancellation terminates the worker,
+  and a two-minute timer terminates unfinished processing. The rebuilt output is
+  not byte-identical to the source.
 - The frontend's meta Content Security Policy restricts scripts, connections,
   images, frames, objects, base URLs, and form actions.
 
@@ -396,15 +537,20 @@ therefore defense in depth, not an authorization boundary.
 
 ## File handling
 
-The public build has no PDF or document upload. Project JSON is the only file
-input and is read locally, limited to 20 MB, deeply structurally validated, and
+The public build has no PDF or document upload. Project/manifest JSON is the only
+file input and is read locally, size-limited, deeply structurally validated, and
 checked against the registered source and official-domain allowlists. Import
 does not re-fetch each source, so fixture claims are cleared and imported
 provenance remains visibly marked as not revalidated.
 
 Official PDFs shown in the comparison workspace are fetched by the browser from
-an approved official URL. They are not fetched or parsed by the Worker.
-Official provenance does not make a file non-malicious. See
+an approved official URL. The Packet Lab is the narrow exception to direct
+browser fetching: the Worker full-streams bytes only for the exact admitted NARA
+presidential-library path and enforces a hard 100 MiB cap. It does not parse or
+transform the PDF. PDF.js parses and renders the completed source locally; the
+optional `pdf-lib` derivative downloads a second copy, verifies matching source
+SHA-256, and runs in a browser Web Worker. Official provenance does not make a
+file non-malicious. See
 [`REDACTION_ANALYSIS.md`](REDACTION_ANALYSIS.md) and
 [`THREAT_MODEL.md`](THREAT_MODEL.md).
 
@@ -424,11 +570,24 @@ Before release:
 7. verify NARA and NARA-profile persistence and every export are locator-only;
 8. run malicious-URL, unofficial-domain, SSRF, JSON-size, OCR-XSS, CSV-injection,
    CORS, timeout, and rate-limit tests;
-9. verify the deployed frontend uses the intended Worker URL and the Worker
+9. verify packet admission rejects every non-canonical host/path/NAID pair,
+   credentialed URL, query/fragment, redirect, invalid signature, expired or
+   tampered token, range request, body exceeding 100 MiB, and inconsistent
+   content response; verify the prefix-only admission body is cancelled and the
+   record/PDF association is never represented as independently proven; verify
+   optional source-validator changes invalidate the session, and actual-length
+   or source-SHA-256 changes reset saved review state; verify no PDF byte, page
+   image, text layer, or token reaches IndexedDB or application logs;
+10. verify text scans stop at 50,000 characters per page, 32 Mi characters total,
+   or 5,000 pages; view streams use their six-per-minute scope; derivative streams
+   use their three-per-minute scope and require a matching source hash; and derivative
+   workers support cancellation, stop after two minutes, remove `/AA` and
+   `/Annots`, and label non-byte-identical output as a research derivative;
+11. verify the deployed frontend uses the intended Worker URL and the Worker
    uses the intended frontend origin;
-10. compare deployed artifacts with the release commit; and
-11. confirm the visible unclassified-use notice and acknowledgement cannot be
-   bypassed through the normal search workflow.
+12. compare deployed artifacts with the release commit; and
+13. confirm the visible unclassified-use notice and acknowledgement cannot be
+   bypassed through the normal search or Packet Lab workflow.
 
 ## Incident response
 
@@ -450,7 +609,8 @@ is not an incident-management or classification-review system.
 The following are architecture changes, not ordinary features:
 
 - any document or image upload;
-- PDF fetching or server-side parsing;
+- any broader PDF host/path, redirect support, arbitrary relay target, or
+  server-side PDF parsing/transformation;
 - OCR not supplied by an official source;
 - an AI or external query-generation provider;
 - user accounts, collaboration, or public multi-user storage;

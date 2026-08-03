@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { SearchProject } from "./core/types";
 import { createDemoProjects } from "./data/demo-projects";
 import { listProjects, saveProject } from "./persistence/database";
@@ -11,12 +11,15 @@ import { ProjectsPage } from "./pages/ProjectsPage";
 import { SavedPage } from "./pages/SavedPage";
 import { SearchPage } from "./pages/SearchPage";
 
+const PdfPacketPage = lazy(() => import("./pages/PdfPacketPage"));
+
 type View =
   | "dashboard"
   | "new-search"
   | "projects"
   | "saved"
   | "compare"
+  | "pdf-packets"
   | "coverage"
   | "exemptions"
   | "about"
@@ -28,16 +31,31 @@ const NAVIGATION: Array<{ id: View; label: string }> = [
   { id: "projects", label: "Search Projects" },
   { id: "saved", label: "Saved Records" },
   { id: "compare", label: "Compare Versions" },
+  { id: "pdf-packets", label: "PDF Packet Lab" },
   { id: "coverage", label: "Source Coverage" },
   { id: "exemptions", label: "Exemption Guide" },
   { id: "about", label: "About" },
   { id: "security", label: "Security" }
 ];
 
+const VIEW_TITLES: Record<View, string> = {
+  dashboard: "Dashboard",
+  "new-search": "New Search",
+  projects: "Search Projects",
+  saved: "Saved Records",
+  compare: "Compare Versions",
+  "pdf-packets": "PDF Packet Lab",
+  coverage: "Source Coverage",
+  exemptions: "Exemption Guide",
+  about: "About",
+  security: "Security",
+  privacy: "Privacy"
+};
+
 function initialView(): View {
   const hash = location.hash.replace(/^#/, "").split("?")[0];
   if (hash === "search") return "new-search";
-  return ["dashboard", "new-search", "projects", "saved", "compare", "coverage", "exemptions", "about", "security", "privacy"].includes(hash)
+  return ["dashboard", "new-search", "projects", "saved", "compare", "pdf-packets", "coverage", "exemptions", "about", "security", "privacy"].includes(hash)
     ? (hash as View)
     : "dashboard";
 }
@@ -50,6 +68,8 @@ export default function App() {
   const [compareIds, setCompareIds] = useState<string[]>([]);
   const [mobileOpen, setMobileOpen] = useState(false);
   const [searchSession, setSearchSession] = useState(0);
+  const mainRef = useRef<HTMLElement>(null);
+  const hasMounted = useRef(false);
 
   const refreshProjects = useCallback(async () => {
     const stored = await listProjects();
@@ -68,6 +88,18 @@ export default function App() {
     return () => window.removeEventListener("hashchange", onHash);
   }, []);
 
+  useEffect(() => {
+    document.title = `${VIEW_TITLES[view]} | Opstalia`;
+    if (!hasMounted.current) {
+      hasMounted.current = true;
+      return;
+    }
+    const frame = window.requestAnimationFrame(() => {
+      mainRef.current?.focus({ preventScroll: true });
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [view]);
+
   const navigate = (next: string, clearProject = false) => {
     const nextView = next as View;
     if (clearProject) {
@@ -77,7 +109,8 @@ export default function App() {
     setView(nextView);
     setMobileOpen(false);
     if (!location.hash.startsWith("#search?") || nextView !== "new-search") history.pushState(null, "", `#${nextView}`);
-    window.scrollTo({ top: 0, behavior: "smooth" });
+    const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    window.scrollTo({ top: 0, behavior: reducedMotion ? "auto" : "smooth" });
   };
 
   const updateProject = async (project: SearchProject) => {
@@ -130,6 +163,12 @@ export default function App() {
         return <SavedPage projects={workingProjects} onOpenProject={openProject} onCompare={openCompare} />;
       case "compare":
         return <ComparePage projects={workingProjects} initialRecordIds={compareIds} onProjectUpdate={updateProject} />;
+      case "pdf-packets":
+        return (
+          <Suspense fallback={<p className="loading-state" role="status">Loading the PDF Packet Lab…</p>}>
+            <PdfPacketPage />
+          </Suspense>
+        );
       case "coverage":
         return <CoveragePage />;
       case "exemptions":
@@ -184,7 +223,7 @@ export default function App() {
         <span>NO OPSTALIA-C CONNECTION</span>
         <span>OFFICIAL PUBLIC SOURCES ONLY</span>
       </div>
-      <main id="main-content" className="main-content" tabIndex={-1}>{mainContent}</main>
+      <main ref={mainRef} id="main-content" className="main-content" tabIndex={-1}>{mainContent}</main>
       <footer className="site-footer">
         <div>
           <span className="brand-mark" aria-hidden="true">O</span>

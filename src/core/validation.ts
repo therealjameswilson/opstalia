@@ -207,6 +207,130 @@ const releaseDeterminationSchema = z
     }
   });
 
+const pdfPacketSegmentSchema = z
+  .object({
+    id: z.string().min(1).max(150),
+    kind: z.enum(["page_range", "described_item"]),
+    title: z.string().trim().min(1).max(500),
+    normalizedRecordId: z.string().max(150).optional(),
+    digitalObjectId: z.string().max(300).optional(),
+    startPage: z.number().int().positive().optional(),
+    endPage: z.number().int().positive().optional(),
+    evidencePages: z.array(z.number().int().positive()).max(100).optional(),
+    describedExtent: z.number().int().positive().max(10_000).optional(),
+    date: z.string().max(80).optional(),
+    documentType: z.string().max(200).optional(),
+    identifier: z.string().max(300).optional(),
+    releaseStatus: releaseDeterminationSchema,
+    notes: z.string().max(5000).optional(),
+    detectionMethod: z.enum(["researcher_defined", "pattern_match", "source_reported"]),
+    confidence: z.number().min(0).max(1),
+    reasons: z.array(z.string().max(500)).max(30),
+    reviewStatus: z.enum([
+      "proposed",
+      "researcher_confirmed",
+      "researcher_corrected",
+      "researcher_rejected"
+    ]),
+    createdAt: z.string().max(80),
+    updatedAt: z.string().max(80)
+  })
+  .superRefine((segment, context) => {
+    if (segment.kind === "page_range") {
+      if (!segment.startPage || !segment.endPage) {
+        context.addIssue({
+          code: "custom",
+          message: "A page range requires start and end pages"
+        });
+      } else if (segment.endPage < segment.startPage) {
+        context.addIssue({
+          code: "custom",
+          path: ["endPage"],
+          message: "A page range cannot end before it starts"
+        });
+      }
+    }
+    if (segment.kind === "described_item" && (segment.startPage || segment.endPage)) {
+      context.addIssue({
+        code: "custom",
+        message: "A described-only item cannot claim a physical page range"
+      });
+    }
+  });
+
+export const pdfPacketProjectSchema = z
+  .object({
+    id: z.string().min(1).max(150),
+    name: z.string().trim().min(1).max(500),
+    createdAt: z.string().max(80),
+    updatedAt: z.string().max(80),
+    privateMode: z.boolean(),
+    source: z.object({
+      sourceId: z.string().min(1).max(100),
+      title: z.string().trim().min(1).max(500),
+      officialPdfUrl: z.string().url().max(4096),
+      officialRecordUrl: z.string().url().max(4096).optional(),
+      identifier: z.string().max(300).optional(),
+      naraNaid: z.string().regex(/^\d{1,20}$/).optional(),
+      pageCount: z.number().int().positive().max(20_000),
+      byteLength: z.number().int().positive().max(536_870_912).optional(),
+      etag: z.string().max(500).optional(),
+      lastModified: z.string().max(200).optional(),
+      sha256: z.string().regex(/^[a-f0-9]{64}$/i).optional(),
+      inspectedAt: z.string().max(80)
+    }),
+    segments: z.array(pdfPacketSegmentSchema).max(5000),
+    scan: z.object({
+      pagesScanned: z.number().int().nonnegative().max(20_000),
+      pagesWithText: z.number().int().nonnegative().max(20_000),
+      completedAt: z.string().max(80).optional(),
+      limitedReason: z.string().max(500).optional()
+    }),
+    notes: z.string().max(10_000).optional()
+  })
+  .superRefine((project, context) => {
+    const ids = new Set<string>();
+    project.segments.forEach((segment, index) => {
+      if (ids.has(segment.id)) {
+        context.addIssue({
+          code: "custom",
+          path: ["segments", index, "id"],
+          message: "Packet segment IDs must be unique"
+        });
+      }
+      ids.add(segment.id);
+      if ((segment.startPage ?? 0) > project.source.pageCount || (segment.endPage ?? 0) > project.source.pageCount) {
+        context.addIssue({
+          code: "custom",
+          path: ["segments", index],
+          message: "A packet range cannot exceed the source PDF page count"
+        });
+      }
+      if (segment.evidencePages?.some((page) => page > project.source.pageCount)) {
+        context.addIssue({
+          code: "custom",
+          path: ["segments", index, "evidencePages"],
+          message: "An evidence-page locator cannot exceed the source PDF page count"
+        });
+      }
+    });
+    if (project.scan.pagesScanned > project.source.pageCount || project.scan.pagesWithText > project.scan.pagesScanned) {
+      context.addIssue({
+        code: "custom",
+        path: ["scan"],
+        message: "Packet scan counts must be consistent with the source PDF"
+      });
+    }
+  });
+
+export const pdfPacketSessionRequestSchema = z.object({
+  sourceId: z.literal("presidential-libraries"),
+  naraNaid: z.string().regex(/^\d{1,20}$/),
+  officialRecordUrl: z.string().url().max(4096),
+  officialPdfUrl: z.string().url().max(4096),
+  acknowledgedPublicUnclassified: z.literal(true)
+});
+
 const releaseMarkingSchema = z.object({
   id: z.string().min(1).max(150),
   code: z.string().max(100).optional(),

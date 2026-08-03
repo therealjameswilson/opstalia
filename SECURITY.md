@@ -59,8 +59,11 @@ service-level agreement.
 ## Deployed security design
 
 The public build uses a static React application on GitHub Pages and a
-Cloudflare Worker with six fixed adapter IDs: `nara`, `nara-cia-rg263`,
-`nara-state-rg59`, `govinfo`, `nasa-ntrs`, and `osti-sti`.
+Cloudflare Worker with six fixed search-adapter IDs: `nara`,
+`nara-cia-rg263`, `nara-state-rg59`, `govinfo`, `nasa-ntrs`, and `osti-sti`.
+The same Worker exposes a narrowly validated Packet Lab session route and a
+bounded NARA presidential-library full-file relay; those routes are not search
+adapters or a general fetch proxy.
 
 ### Secrets
 
@@ -69,8 +72,8 @@ Cloudflare Worker with six fixed adapter IDs: `nara`, `nara-cia-rg263`,
   frontend constants, screenshots, build artifacts, log entries, or client
   responses.
 - The health route reports public service/version metadata, registered adapter
-  IDs, policy summaries, and only Boolean readiness for the NARA and GovInfo
-  source secrets. It never returns a secret value.
+  IDs, policy summaries, and only Boolean readiness for the NARA, GovInfo, and
+  Packet Lab relay secrets. It never returns a secret value.
 - `.env.example` contains placeholders only; `.env*`, `.dev.vars`, Wrangler
   state, logs, and local files are ignored.
 - Worker errors pass through secret-redaction logic before a response is
@@ -105,6 +108,10 @@ Cloudflare Worker with six fixed adapter IDs: `nara`, `nara-cia-rg263`,
   make one timeout-bounded upstream attempt.
 - The frontend and Worker use `no-store`; the Worker disables Cloudflare
   response caching for every upstream call.
+- Packet Lab admission sends `HEAD`, then starts a full `GET`, reads only the
+  five-byte PDF signature prefix, and cancels the admission body. Opening and
+  derivative routes reject ranges, pass one complete response through without
+  application buffering, and terminate a stream above 100 MiB.
 - Source failures are isolated. A failure does not broaden the source set or
   trigger a fallback to unofficial repositories.
 
@@ -170,22 +177,29 @@ local file input is an Opstalia project JSON import.
 
 Official public PDFs may be linked or displayed in a sandboxed browser frame.
 They remain untrusted active content even when hosted on an official domain.
-The 1.0 backend does not download, parse, rasterize, OCR, transform, or store
-PDFs. Do not bypass browser warnings or download a file whose provenance cannot
-be verified.
 
-Any future PDF-processing feature must add, before deployment:
+The PDF Packet Lab is a narrow exception to direct browser retrieval. It accepts
+no file upload and only an acknowledged public, unclassified locator on the exact
+NARA presidential-library media path plus a researcher-supplied canonical NAID
+record URL. URL and numeric consistency checks do not prove that the record
+lists the PDF; the researcher must confirm that association on the official
+record page.
 
-- strict source/provenance checks and an explicit unclassified-public-release
-  attestation;
-- byte, page, decompression, and processing-time limits;
-- content sniffing rather than reliance on an extension or declared MIME type;
-- isolation from the application and network;
-- disabled JavaScript, actions, attachments, external references, and
-  post-processing callbacks;
-- a maintained parser/rasterizer and malware-scanning strategy;
-- non-persistent processing by default; and
-- dedicated malformed, polyglot, decompression-bomb, and parser-escape tests.
+During admission the Worker sends `HEAD`, then starts a full `GET`, reads only
+the five-byte `%PDF-` prefix, and cancels the body. A Worker-visible length or
+ETag may be absent. Opening makes a separate full-file request and passes one
+copy through to browser memory under a hard 100 MiB streaming cap. The browser
+computes actual received length and SHA-256 before PDF.js parses and slices the
+completed bytes locally. Derivative export makes a disclosed second full-source
+transfer and proceeds only when its newly computed source SHA-256 matches the
+opening hash.
+
+The Worker does not parse, rasterize, OCR, transform, cache, or store a PDF. It
+uses no R2, KV, D1, Durable Object, PDF cache, or response cache. Relay responses
+are `no-store`; application code does not log their bodies. PDF.js disables
+script evaluation and XFA, omits annotations from page rendering, and bounds
+image, scan, and derivative work. Sources above 100 MiB are unsupported. Do not
+bypass browser warnings or use a file whose provenance cannot be verified.
 
 See [`docs/REDACTION_ANALYSIS.md`](docs/REDACTION_ANALYSIS.md).
 

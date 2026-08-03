@@ -206,6 +206,72 @@ export interface DigitalObject {
   sizeBytes?: number;
 }
 
+export type PdfPacketSegmentKind = "page_range" | "described_item";
+
+export type PdfPacketDetectionMethod =
+  | "researcher_defined"
+  | "pattern_match"
+  | "source_reported";
+
+export interface PdfPacketSource {
+  sourceId: string;
+  title: string;
+  officialPdfUrl: string;
+  officialRecordUrl?: string;
+  identifier?: string;
+  naraNaid?: string;
+  pageCount: number;
+  byteLength?: number;
+  etag?: string;
+  lastModified?: string;
+  sha256?: string;
+  inspectedAt: string;
+}
+
+export interface PdfPacketSegment {
+  id: string;
+  kind: PdfPacketSegmentKind;
+  title: string;
+  normalizedRecordId?: string;
+  digitalObjectId?: string;
+  startPage?: number;
+  endPage?: number;
+  evidencePages?: number[];
+  describedExtent?: number;
+  date?: string;
+  documentType?: string;
+  identifier?: string;
+  releaseStatus: ReleaseDetermination;
+  notes?: string;
+  detectionMethod: PdfPacketDetectionMethod;
+  confidence: number;
+  reasons: string[];
+  reviewStatus:
+    | "proposed"
+    | "researcher_confirmed"
+    | "researcher_corrected"
+    | "researcher_rejected";
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface PdfPacketProject {
+  id: string;
+  name: string;
+  createdAt: string;
+  updatedAt: string;
+  privateMode: boolean;
+  source: PdfPacketSource;
+  segments: PdfPacketSegment[];
+  scan: {
+    pagesScanned: number;
+    pagesWithText: number;
+    completedAt?: string;
+    limitedReason?: string;
+  };
+  notes?: string;
+}
+
 export type ReviewDisposition = "unreviewed" | "confirmed_match" | "rejected_match";
 
 export interface ResearchReview {

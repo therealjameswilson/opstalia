@@ -1,7 +1,7 @@
 # Opstalia 1.0 threat model
 
 Status: public Internet release
-Last reviewed: 2026-07-30
+Last reviewed: 2026-08-03
 
 ## Scope
 
@@ -10,9 +10,11 @@ This threat model covers:
 - the React/Vite frontend served from GitHub Pages;
 - browser-local IndexedDB and in-memory state;
 - checked-in FRUS, ISCAP, NDC, and NARA JFK release-file indexes and their build scripts;
-- the Cloudflare Worker fixed adapter registry;
+- the Cloudflare Worker fixed adapter registry and signed-session NARA
+  presidential-library bounded full-file relay;
 - NARA Catalog, GovInfo, NASA NTRS, and OSTI.GOV upstream requests;
-- registered manual links and official-file viewers;
+- registered manual links, official-file viewers, PDF.js local parsing and
+  embedded-text scan, and the beta `pdf-lib` browser-worker derivative path;
 - project JSON import and report/project exports; and
 - the release and dependency supply chain.
 
@@ -43,6 +45,8 @@ connection or synchronization with a closed network.
 | `NARA_API_KEY`, `GOVINFO_API_KEY`, and deployment credentials | Confidentiality and prompt revocation if exposed |
 | Search terms and researcher notes | No application logging; local retention only when chosen |
 | Saved projects and annotations | Integrity, local availability, explicit deletion/export |
+| PDF packet manifests and researcher page decisions | Integrity, local availability, separation from transient PDF bytes/text/tokens |
+| PDF relay token and `RATE_LIMIT_SALT` | Signature integrity, short lifetime, no application logging, secret confidentiality |
 | Official-source registry | Integrity and reviewable change history |
 | Normalized record provenance | Integrity and non-repudiation of source/extraction method |
 | Pinned indexes | Integrity, reproducibility, bounded coverage, freshness metadata |
@@ -74,8 +78,9 @@ connection or synchronization with a closed network.
    boundary.
 3. **Browser to IndexedDB:** local persistence is accessible to the origin and
    device environment.
-4. **Browser to Worker:** unclassified query text and network metadata cross
-   the public Internet and Cloudflare edge.
+4. **Browser to Worker:** unclassified query text or an acknowledged public
+   NARA packet locator, short-lived token, bounded full-stream requests, and network metadata
+   cross the public Internet and Cloudflare edge.
 5. **Worker to official API:** source-specific requests cross to NARA, GovInfo, NASA NTRS, or OSTI.GOV. NARA and GovInfo requests carry their respective server-side source key; NTRS and OSTI requests do not.
 6. **Browser to manual source or file:** the user leaves Opstalia's runtime
    control and interacts with the official host. A displayed prefilled handoff
@@ -84,29 +89,41 @@ connection or synchronization with a closed network.
    storage.
 8. **Build pipeline to release:** dependencies and upstream source artifacts
    become executable code or searchable data.
+9. **PDF relay to browser parser:** after a prefix-only admission read is
+   cancelled, one complete official PDF crosses from the strict NARA media path
+   through Cloudflare into browser memory for PDF.js. A derivative request makes
+   a second complete NARA → Cloudflare → browser transfer and then passes those
+   bytes into an isolated browser Web Worker. Both streams have a hard 100 MiB cap.
 
 ## Threat and control register
 
 | Threat | Existing 1.0 controls | Residual risk / required practice |
 | --- | --- | --- |
-| Classified, CUI, PII, or restricted data entered as search text | Prominent notice, affirmative acknowledgement, unclassified-only labels, no document upload | A public app cannot inspect or reliably classify inputs. User and organization remain responsible; stop and follow incident procedure if entered |
+| Classified, CUI, PII, or restricted data entered as search text or packet notes | Prominent notice, affirmative acknowledgement, unclassified-only labels, no document upload, Packet Lab restricted to an already-public official NARA locator | A public app cannot inspect or reliably classify inputs. Public availability of a file does not authorize restricted annotations. User and organization remain responsible; stop and follow incident procedure if entered |
 | Misbelief that Opstalia synchronizes with Opstalia-c | Repeated public-build boundary; no connector, route, datastore, or protocol | Future marketing or code could create ambiguity; any integration requires a new review and authorization |
 | NARA or GovInfo key leaked into frontend or repository | Worker secrets, placeholder environment file, ignore rules, health Booleans only, secret scanner, error redaction | Maintainer credential/build compromise or manual copy remains possible; inspect Git history and built source maps and rotate on suspicion |
-| Cross-origin abuse of Worker | Exact origin allowlist and CORS rejection | CORS is not authentication and non-browser clients can send requests. Rate limiting and quota monitoring remain necessary |
+| Cross-origin abuse of Worker | Exact origin allowlist and CORS rejection; separate session/content limits; signed-session PDF content | CORS is not authentication and non-browser clients can send requests. A leaked relay token can be replayed until expiry. Rate limiting and quota monitoring remain necessary |
 | Upstream quota exhaustion or denial of service | 30/minute per ephemeral derived key, at most three Worker-backed plan variants per source, source timeout, bounded retries where implemented, partial failure | Per-isolate limiter is neither global nor durable; distributed abuse can evade it. Source-specific limits and Cloudflare-level rate rules may be needed |
-| SSRF or secret forwarding through source URL, source ID, query input, or redirect | Fixed adapter-ID registry; fixed per-adapter endpoints; HTTPS/host/authority/port checks; redirects rejected; no user-selectable outbound URL | A future adapter that accepts redirects or URLs could reopen SSRF. Revalidate every hop and DNS behavior before adding one |
+| SSRF or secret forwarding through source URL, source ID, query input, token, or redirect | Fixed adapter-ID registry; fixed per-adapter endpoints; strict Packet Lab hostname and `/medialz/presidential-libraries/` path; researcher-supplied canonical `/id/<NAID>` URL whose numeric component must repeat the submitted NAID; credentials/ports/query/fragment/traversal rejected; redirects rejected; content route takes only a signed token, never a new URL | URL-form consistency does not prove that the Catalog record lists the PDF. A future adapter or Packet Lab expansion that accepts another host, redirect, or arbitrary URL could reopen SSRF. Revalidate every hop and DNS behavior before adding one |
 | Malformed or oversized upstream result reaches the browser | Worker and browser runtime-validate responses; streamed upstream JSON is capped at 12,000,000 bytes for NARA and 5,000,000 bytes for GovInfo/NTRS/OSTI; admission checks source identity, provenance, every result/file URL, and GovInfo/NTRS/OSTI record-ID binding; NARA also caps reported objects/OCR and exposes only recognized direct files on approved `archives.gov` hosts | A schema-valid source payload can still be misleading or expensive. Keep per-adapter bounds, rendering limits, and regression tests under review |
 | Unofficial source or generic official-site page presented as primary evidence | Registry-based domains, adapter/provenance match, and HTTPS are required; researcher locators from manual sources must also match adapter-specific direct record-page or record-file paths, so generic search-results, status, home, publications, collection, and navigation pages are rejected. NARA JFK results require an exact release-file path plus filename-RIF binding; Doctly/GitHub content is excluded | An allowlisted direct record or file can still be unrelated, mislabeled, incomplete, or compromised. Researcher confirmation and human source-page review remain required |
 | Subdomain confusion or malformed URL | Parsed URL and label-boundary subdomain comparison; HTTPS only | Registry changes can approve an overly broad parent domain. Review every domain addition and test deceptive suffixes |
 | Source failure triggers leak/mirror fallback | Per-source isolation and honest manual official links; no unofficial fallback | Users can independently leave the tool; reports must not treat those materials as primary official evidence |
 | Stored NARA API content violates current terms | Worker/browser `no-store`, upstream cache disabled, no raw NARA record return, locator-only IndexedDB and export sanitizer for general and RG-profile results | A future persistence or export path could omit the shared sanitizer; regression tests remain required |
-| Full queries or addresses appear in logs | Worker observability disabled; no body/query/header logging; address used only for an in-memory hash; manual handoffs show exactly which terms will be sent and open only on user action | GitHub, Cloudflare, NARA, GovInfo, NTRS, OSTI, a manually selected official source, browser, proxy, or enterprise infrastructure may log independently. Private mode is not anonymity |
+| Full queries, addresses, relay tokens, stream-purpose headers, or PDF bytes appear in logs | Worker observability disabled; no body/query/header/PDF logging in application code; address used only for an in-memory hash; relay responses are passed through; manual handoffs show exactly which terms will be sent and open only on user action | The signed token is carried in the content URL, and GitHub, Cloudflare, NARA, GovInfo, NTRS, OSTI, a manually selected official source, browser, proxy, or enterprise infrastructure may log independently. Private mode is not anonymity; do not share a relay URL |
 | Publication or STI result mistaken for declassification evidence | Separate GovInfo/NTRS/OSTI source identities, `not_determined` or `metadata_only` defaults, warnings, and documented corpus limits | An official public record can still be overread. Researchers must verify release mechanism and agency determination at the controlling official source |
 | NARA RG profile mistaken for native CIA/State FOIA coverage | Separate source IDs and provenance, fixed record-group filters, visible warnings, native adapters retained as manual/unavailable | NARA holdings are incomplete and users may ignore labels. Reports must not merge profile and native source-run claims |
-| XSS through title, OCR, source metadata, or imported data | React text rendering, no source HTML injection, printable HTML escaping, CSP, no plugin objects | Future rich HTML, markdown, OCR highlighting, or PDF.js integration can bypass current assumptions; sanitize and test before use |
+| XSS or active content through title, embedded PDF text, source metadata, or imported data | React text rendering, no source HTML injection, printable HTML escaping, CSP, no plugin objects; PDF.js script evaluation and XFA disabled; annotations omitted from packet page rendering | Future rich HTML, markdown, OCR highlighting, PDF annotations/actions, or parser changes can bypass current assumptions; sanitize and test before use |
 | Spreadsheet formula injection in CSV | Values beginning with `=`, `+`, `-`, or `@` are prefixed | Spreadsheet behaviors vary; open exports in protected mode and preserve source text |
 | Malicious imported project | 20 MB byte cap, deep runtime schema and collection bounds, official-domain checks, React escaping, fixture claims cleared | Imported provenance and researcher judgments remain portable assertions rather than live source authentication; the UI marks them as not revalidated |
-| Malicious or malformed official PDF | No upload or Worker parsing; approved HTTPS provenance; sandboxed browser frame | Browser PDF engine and official host remain attack surfaces. Do not bypass warnings; stronger isolation/content controls are prerequisites to processing |
+| Malicious, malformed, encrypted, or resource-exhausting official PDF | No upload; exact NARA host/path admission; no redirects; HEAD plus prefix-only signature inspection; accepted content type; hard 100 MiB streaming cap even without Worker-visible length; Worker only passes bytes through; browser verifies the signature, computes SHA-256, and then invokes PDF.js with XFA, script evaluation, and annotations disabled; bounded canvas/image work; embedded-text scan capped at 50,000 characters per page, 32 Mi characters total, and 5,000 pages; parser errors fail closed; beta `pdf-lib` work isolated to a cancellable two-minute browser worker | The complete source occupies browser memory, so mobile or low-memory devices may fail below 100 MiB. PDF.js, `pdf-lib`, the browser, and official host remain attack surfaces. Crafted page structures can still consume CPU/memory or exploit an unpatched parser. Keep dependencies/browser patched, cancel slow scans, and do not bypass warnings |
+| Relay token theft, tampering, or replay | HMAC-SHA-256 signature over canonical source, NAID, any available size/validators, and expiry; constant-time signature comparison; two-hour lifetime; content path cannot change upstream URL; no application logging; rate limits | The token is signed but not encrypted or user-bound and can be replayed by a holder until expiry. CORS is not authentication. Avoid sharing the content URL and rotate `RATE_LIMIT_SALT` if compromise is suspected |
+| Full-stream relay abuse or response amplification | Byte ranges are rejected; exactly one view or derivative purpose is required; every response is terminated above 100 MiB; six view and three derivative streams per minute per ephemeral derived key; 20-second relay timeout; no cache/storage | Per-isolate limiting is not global. A legitimate open plus derivative can transfer the complete source twice, and repeated bounded streams can still consume NARA/Cloudflare bandwidth. Apply platform-level controls if operational evidence warrants them |
+| PDF bytes, text, images, token, or stale decisions silently retained | IndexedDB schema stores packet manifest/decisions only; private mode bypasses persistence; source bytes, PDF.js text, and pages remain in memory; relay and browser requests use no-store; no backend storage; reopening recomputes the full source hash and preserves reviewed decisions only when received length and SHA-256 match | Browser memory, downloads, cache implementation, extensions, screenshots, swap, crash reports, provider telemetry, or device monitoring remain outside complete application control. The browser-computed hash detects a changed byte sequence but does not establish archival authenticity |
+| Withdrawal-sheet description mistaken for released content pages | Separate `described_item` lane forbids start/end content pages and derivative export; a manual item defaults to `not_determined`; only a visible embedded-text withdrawal/redaction-sheet pattern supports a `withdrawal_notice_only` proposal; human review remains required | A source sheet itself may be incomplete or misunderstood. Described extent is not proof that the underlying pages are present or released |
+| Research derivative mistaken for an official release or byte-identical extract | Derivatives require a reviewed physical page range; output and manifests say “Research derivative”; source/derivative hashes and canonical source links preserved; `/AA` actions and `/Annots` annotations removed; two-minute cancellable worker; described-only items cannot export | The file is rebuilt and intentionally not byte-identical. Downloaded filenames and later copies can lose context. Preserve the manifest and cite the official packet; the official source controls |
+| Researcher-supplied Catalog association mistaken for verified provenance | UI and exports label the NAID/record association researcher supplied; only URL form and numeric consistency are validated; derivative provenance states that Opstalia did not verify the association | Researchers may overlook the caveat. Confirm on the controlling Catalog page that the record actually lists the PDF before relying on the association |
+| Official PDF changes during or between sessions | The session binds any available ETag or Last-Modified value; the browser computes source SHA-256 during every open; derivative export computes SHA-256 over its second copy and requires a match; reopened saved work retains review state only when actual length and SHA-256 agree | Worker-visible validators and length can be absent, weak, or incorrectly maintained. SHA-256 detects byte changes between received copies but does not prove archival authenticity or the researcher-supplied record association |
 | Clickjacking or cross-site embedding | CSP declares `frame-ancestors 'none'`; Worker CSP uses a response header | `frame-ancestors` in a meta CSP is not a substitute for a host response header. GitHub Pages header control is limited |
 | Data loss from local-only storage | Explicit JSON/report export and import; clear/delete controls | Browser eviction, user clearing, profile loss, or device failure can destroy projects. Exports create new copies with separate privacy risk |
 | Private-mode data unexpectedly retained | No project persistence, no share fragment, in-memory workspace, Worker no-store | Static assets/indexes may cache; screenshots, downloads, copied text, browser/extension state, provider logs, and previously saved projects remain |
@@ -152,10 +169,18 @@ not implement string-prefix checks.
 
 ### An official site serves a dangerous PDF
 
-The 1.0 Worker does not fetch or parse it. The browser may display it in a
-sandboxed frame or navigate to it. The user should keep the browser patched and
-not bypass warnings. A future processor requires the isolation and limits in
-[`REDACTION_ANALYSIS.md`](REDACTION_ANALYSIS.md).
+The comparison workspace may display it in a sandboxed frame or navigate to it.
+The Packet Lab Worker can fetch and full-stream it only from the exact admitted
+NARA presidential-library path, but never parses or transforms it. The complete
+source is held transiently in browser memory under a hard 100 MiB cap; PDF.js
+parses it locally with active features disabled. Beta page extraction downloads
+a second complete copy, requires matching source SHA-256, and is isolated in a
+browser Web Worker. The embedded-text scan is bounded to 50,000 characters per
+page, 32 Mi characters total, and 5,000 pages. Derivative processing is
+cancellable, terminates after two minutes, and strips copied-page `/AA` and
+`/Annots` entries. These controls reduce, but do not eliminate, parser and
+resource-exhaustion risk. The user should keep the browser and application
+dependencies patched, stop a slow or suspicious scan, and not bypass warnings.
 
 ### A forged project import claims official provenance
 
@@ -196,7 +221,8 @@ The following risks are accepted for the 1.0 unclassified research use case:
 The following are not accepted without a new design and review:
 
 - any classified/CUI processing;
-- public document upload or backend PDF processing;
+- public document upload or backend PDF parsing/transformation;
+- a general-purpose PDF proxy, broader Packet Lab host/path, or redirect-following relay;
 - frontend secrets;
 - unofficial evidence admitted to the primary index;
 - silent query, note, result, or response persistence;
@@ -210,8 +236,11 @@ Re-run the threat model when:
 
 - the deployment origin, Worker domain, or provider changes;
 - a new automated source or official domain is added;
-- an adapter follows redirects or fetches a record URL;
-- document/image upload, OCR, PDF parsing, or rich HTML is proposed;
+- an adapter follows redirects or fetches a new record/file URL;
+- the Packet Lab host/path, token contents/lifetime, full-stream limits,
+  PDF.js or `pdf-lib` options, persisted manifest fields, or derivative behavior changes;
+- document/image upload, OCR, server-side PDF parsing, PDF active-content support,
+  or rich HTML is proposed;
 - an AI provider is introduced;
 - accounts, collaboration, analytics, or backend storage are introduced;
 - NARA or another source changes terms;
@@ -232,6 +261,14 @@ A release review should retain:
 - the release commit and deployed frontend/Worker identities;
 - confirmation that NARA and GovInfo keys are absent from repository history, source
   maps, and frontend bundles;
-- CORS, SSRF, no-store, timeout, and unofficial-domain rejection tests; and
+- CORS, SSRF, no-store, timeout, and unofficial-domain rejection tests;
+- Packet Lab host/path/NAID admission, redirect rejection, prefix-only content
+  probe and cancellation, unverified-association labeling, HMAC tamper/expiry,
+  optional source-validator changes, rejection of range requests, six/minute
+  view and three/minute derivative scopes, hard 100 MiB full-stream ceiling,
+  browser source hashing, matching derivative-source hash,
+  50,000-character/32-Mi-character/5,000-page scan
+  limits, two-minute derivative cancellation, `/AA`/`/Annots` stripping,
+  browser-only parse, and manifest-only persistence tests; and
 - confirmation that the required unclassified-use acknowledgement remains
   visible and enforced.

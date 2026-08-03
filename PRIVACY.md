@@ -35,6 +35,11 @@ Selected official API: NARA Catalog, GovInfo, NASA NTRS, or OSTI.GOV
 
 Your browser -- user-initiated navigation, including prepared terms when shown --> selected official website
                                                                                   and its service providers
+
+Your browser -- acknowledged NAID + canonical NARA record/PDF locators --> Cloudflare Worker
+Cloudflare Worker -- HEAD, then prefix-only GET/cancel --> approved NARA PDF
+approved NARA PDF -- one complete bounded copy through Cloudflare --> browser memory
+approved NARA PDF -- optional second complete derivative copy through Cloudflare --> browser memory
 ```
 
 FRUS, ISCAP, NDC, and the optional NARA JFK release-file search run against
@@ -57,6 +62,9 @@ the researcher copies or retries them. No manual source opens automatically.
 | Worker searches NARA | NARA Catalog API | Query text, limit, API credential, and supported filters such as NAID, dates, title, creator, geography, and material type |
 | Worker searches GovInfo | GovInfo Search Service | Query text, page size/cursor, sort, and the server-side GovInfo API credential |
 | Worker searches NTRS or OSTI | NASA NTRS or OSTI.GOV | Query text and supported source-specific metadata filters; no Opstalia source API key |
+| Admit a Packet Lab source | Cloudflare Worker, then NARA Catalog media | Numeric NAID, researcher-supplied canonical record URL, direct approved PDF URL, acknowledgement, ordinary network metadata; the Worker sends `HEAD`, then reads only the five-byte PDF signature prefix from a full GET and cancels that response |
+| Open a Packet Lab source | Cloudflare Worker and NARA Catalog media | A short-lived signed content token and packet-view purpose; one complete official PDF, hard-limited to 100 MiB, streams NARA → Cloudflare → browser memory |
+| Create a Packet Lab derivative | Cloudflare Worker and NARA Catalog media | The signed token and derivative purpose; a second complete source copy, hard-limited to 100 MiB, streams NARA → Cloudflare → browser memory so its SHA-256 can be matched before local extraction |
 | Open a manual handoff | Selected official repository and service providers used by that site | Normal browser request data and any prepared search terms/filters included in the displayed official URL; local research notes are excluded |
 | Open or compare an official file | Selected official repository | Normal navigation or embedded-view request data, including the requested official URL |
 | Export a project/report | User-selected local destination | The generated file is created in the browser; subsequent cloud sync, email, or transfer is controlled by the user and their device |
@@ -83,7 +91,11 @@ namespaced IndexedDB database:
 - saved-record selections;
 - comparison and version-group decisions;
 - researcher annotations, corrections, and judgment bases;
-- report and audit metadata; and
+- report and audit metadata;
+- PDF packet manifests containing official locators, any available validators,
+  actual received length, source and derivative hashes, page/scan counts,
+  reviewed ranges, described-only items, and researcher notes—but no PDF bytes,
+  page images, thumbnails, extracted page text, or relay token; and
 - browser-local preferences.
 
 This data remains until the user deletes a project, selects **Clear all local
@@ -131,8 +143,10 @@ checked-in snapshot of public filenames, RIFs, raw source-table row dates, and
 official NARA PDF URLs parsed from NARA's release page. That snapshot can be
 stored in browser-local projects because it is a public build artifact rather
 than a response from the Catalog API. Opstalia does not include NARA PDF text or
-the unofficial Doctly Markdown corpus in the snapshot. Opening an official PDF
-sends an ordinary browser request to NARA.
+the unofficial Doctly Markdown corpus in the snapshot. Opening an ordinary
+official link sends a browser request directly to NARA. Opening a Packet Lab
+source instead uses the narrow Cloudflare relay described below; that relay is
+not a Catalog API search and does not persist the media response.
 
 ## Cloudflare Worker processing
 
@@ -153,6 +167,17 @@ excluded from browser persistence and exports except for generated
 NAID/official-URL locators. Permissible public GovInfo, NTRS, and OSTI response
 records may be stored in a non-private browser project for provenance.
 
+For the Packet Lab, the Worker first sends a no-redirect `HEAD`, then starts a
+no-redirect full `GET`, reads only the five-byte `%PDF-` prefix, and cancels that
+admission response. A length or ETag visible to the Worker is retained only in
+the short-lived signed session and may be absent. Opening then makes a separate
+full-source request and passes one complete copy through to browser memory,
+terminating the stream above 100 MiB. The browser computes actual received
+length and SHA-256. Derivative creation makes a second complete transfer and
+requires its browser-computed source SHA-256 to match the opening hash. No PDF
+body is cached, stored, parsed, OCRed, or indexed by Worker application code;
+the Worker has no R2, KV, D1, Durable Object, or PDF response cache.
+
 Cloudflare may process or retain infrastructure and security telemetry under
 its own policies. Disabling Worker observability and application logging does
 not make the request anonymous.
@@ -171,6 +196,9 @@ Private mode does **not**:
 
 - anonymize a user or query;
 - stop a selected live query from reaching Cloudflare and the selected official API;
+- stop a selected Packet Lab source from being admitted and full-streamed through
+  Cloudflare, or stop a derivative action from making its disclosed second
+  complete source transfer;
 - stop normal requests to GitHub Pages or a manually opened official site;
 - prevent network, browser, extension, operating-system, or enterprise
   monitoring;

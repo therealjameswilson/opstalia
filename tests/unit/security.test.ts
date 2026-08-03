@@ -9,6 +9,7 @@ import {
   canonicalNtrsDownloadPath,
   domainMatches,
   isApprovedOfficialUrl,
+  validateNaraPresidentialLibraryPacket,
   validateNormalizedRecordEvidence,
   validatePrimaryEvidence
 } from "../../src/security/url-policy";
@@ -267,5 +268,58 @@ describe("official-domain and secret boundaries", () => {
     const misleading = structuredClone(sourceData);
     misleading.sources[0].adapterStatus = "manual";
     expect(sourceRegistryDataSchema.safeParse(misleading).success).toBe(false);
+  });
+});
+
+describe("NARA presidential-library packet admission", () => {
+  const presidentialLibraries = {
+    id: "presidential-libraries",
+    displayName: "NARA Presidential Libraries",
+    agency: "NARA",
+    officialDomains: ["archives.gov", "catalog.archives.gov", "bush41library.gov"],
+    description: "Official packets",
+    searchCapability: "manual" as const,
+    apiAvailability: "NARA Catalog",
+    authentication: "None",
+    rateLimit: "Not published",
+    robotsAndTerms: "No scraping",
+    adapterStatus: "manual" as const,
+    implementationMethod: "Packet lab",
+    supportedFilters: [],
+    fieldsReturned: [],
+    knownLimitations: [],
+    manualSearchUrl: "https://www.archives.gov/presidential-libraries/visit/websites.html",
+    lastValidated: "2026-08-03",
+    enabledByDefault: true
+  };
+
+  it("binds an exact medialz packet path to its matching NAID record", () => {
+    expect(validateNaraPresidentialLibraryPacket({
+      naraNaid: "470761856",
+      officialRecordUrl: "https://catalog.archives.gov/id/470761856",
+      officialPdfUrl: "https://catalog.archives.gov/medialz/presidential-libraries/bush/gb-nsc/example.pdf"
+    }, presidentialLibraries)).toMatchObject({ allowed: true });
+  });
+
+  it.each([
+    "https://catalog.archives.gov/id/470761856.pdf",
+    "https://catalog.archives.gov/medialz/other/example.pdf",
+    "https://catalog.archives.gov.evil.example/medialz/presidential-libraries/bush/example.pdf",
+    "https://catalog.archives.gov/medialz/presidential-libraries/bush/example.pdf?token=secret",
+    "https://catalog.archives.gov/medialz/presidential-libraries/bush/%252e%252e%252fexample.pdf"
+  ])("rejects an unsupported or deceptive packet URL: %s", (officialPdfUrl) => {
+    expect(validateNaraPresidentialLibraryPacket({
+      naraNaid: "470761856",
+      officialRecordUrl: "https://catalog.archives.gov/id/470761856",
+      officialPdfUrl
+    }, presidentialLibraries).allowed).toBe(false);
+  });
+
+  it("rejects a Catalog record URL that does not match the supplied NAID", () => {
+    expect(validateNaraPresidentialLibraryPacket({
+      naraNaid: "470761856",
+      officialRecordUrl: "https://catalog.archives.gov/id/470761855",
+      officialPdfUrl: "https://catalog.archives.gov/medialz/presidential-libraries/bush/example.pdf"
+    }, presidentialLibraries).allowed).toBe(false);
   });
 });

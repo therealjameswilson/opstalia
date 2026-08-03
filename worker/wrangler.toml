@@ -1,6 +1,6 @@
 name = "opstalia-api"
 main = "src/index.ts"
-compatibility_date = "2026-07-29"
+compatibility_date = "2026-08-03"
 workers_dev = true
 preview_urls = false
 send_metrics = false

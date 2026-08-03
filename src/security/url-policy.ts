@@ -132,6 +132,98 @@ export function isApprovedOfficialUrl(url: string, source: SourceDefinition): bo
   }
 }
 
+export function validateOfficialPdfSource(
+  value: string,
+  source: SourceDefinition
+): { allowed: boolean; reason: string; canonicalUrl?: string } {
+  if (value.length > 4096 || !isApprovedOfficialUrl(value, source)) {
+    return {
+      allowed: false,
+      reason: `Use a direct HTTPS PDF on an approved ${source.displayName} domain.`
+    };
+  }
+  const parsed = new URL(value);
+  if (parsed.hash || parsed.search) {
+    return {
+      allowed: false,
+      reason: "For the public packet workspace, use a stable direct PDF URL without query parameters or a fragment."
+    };
+  }
+  const lowerPath = parsed.pathname.toLocaleLowerCase();
+  if (/%(?:2f|5c|25|00)/i.test(lowerPath)) {
+    return { allowed: false, reason: "Encoded separators and nested encoding are not allowed in packet URLs." };
+  }
+  const decodedPath = decodePathComponent(parsed.pathname);
+  if (!decodedPath || !/\.pdf$/i.test(decodedPath)) {
+    return { allowed: false, reason: "The official source must be a direct PDF file." };
+  }
+  if (
+    decodedPath.split("/").some((segment) => segment === "." || segment === "..") ||
+    [...decodedPath].some((character) => {
+      const point = character.codePointAt(0) ?? 0;
+      return point <= 0x1f || point === 0x7f;
+    })
+  ) {
+    return { allowed: false, reason: "The PDF path contains an unsafe path segment." };
+  }
+  return { allowed: true, reason: "Approved direct official PDF", canonicalUrl: parsed.href };
+}
+
+export function validateNaraPresidentialLibraryPacket(
+  input: {
+    officialPdfUrl: string;
+    officialRecordUrl: string;
+    naraNaid: string;
+  },
+  source: SourceDefinition
+): { allowed: boolean; reason: string; canonicalPdfUrl?: string; canonicalRecordUrl?: string } {
+  if (source.id !== "presidential-libraries" || !/^\d{1,20}$/.test(input.naraNaid)) {
+    return { allowed: false, reason: "The initial packet workspace accepts a numeric NARA NAID from the presidential-libraries registry entry." };
+  }
+  const pdf = validateOfficialPdfSource(input.officialPdfUrl, source);
+  if (!pdf.allowed || !pdf.canonicalUrl) return pdf;
+  const parsedPdf = new URL(pdf.canonicalUrl);
+  const decodedPath = decodePathComponent(parsedPdf.pathname);
+  const presidentialPacketPath = decodedPath?.startsWith("/medialz/presidential-libraries/") &&
+    decodedPath.toLocaleLowerCase().endsWith(".pdf") &&
+    decodedPath.split("/").filter(Boolean).every(
+      (segment) => segment.length <= 255 && /^[a-z0-9._() ,~-]+$/i.test(segment)
+    );
+  if (normalizeHostname(parsedPdf.hostname) !== "catalog.archives.gov" || !presidentialPacketPath) {
+    return {
+      allowed: false,
+      reason: "Opstalia currently processes only direct NARA Catalog presidential-library packet PDFs under /medialz/presidential-libraries/."
+    };
+  }
+  let record: URL;
+  try {
+    record = new URL(input.officialRecordUrl);
+  } catch {
+    return { allowed: false, reason: "Provide the matching NARA Catalog record URL." };
+  }
+  if (
+    record.protocol !== "https:" ||
+    normalizeHostname(record.hostname) !== "catalog.archives.gov" ||
+    record.username ||
+    record.password ||
+    record.port ||
+    record.search ||
+    record.hash ||
+    record.pathname.replace(/\/$/, "") !== `/id/${input.naraNaid}`
+  ) {
+    return {
+      allowed: false,
+      reason: `The record URL must be https://catalog.archives.gov/id/${input.naraNaid}.`
+    };
+  }
+  return {
+    allowed: true,
+    reason: "Approved NARA presidential-library PDF and canonical researcher-supplied Catalog record locator",
+    canonicalPdfUrl: parsedPdf.href,
+    canonicalRecordUrl: record.href
+  };
+}
+
 const PUBLIC_RECORD_FILE = /\.(?:pdf|txt|tif|tiff|jpg|jpeg|png|jp2)$/i;
 
 export function validateResearcherRecordLocator(
