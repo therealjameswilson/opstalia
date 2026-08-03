@@ -312,7 +312,7 @@ async function fetchWithRetry(url: URL, apiKey: string, signal: AbortSignal): Pr
         "x-api-key": apiKey,
         "User-Agent": "Opstalia/1.0 official records research"
       },
-      redirect: "error",
+      redirect: "manual",
       signal,
       cf: { cacheTtl: 0, cacheEverything: false }
     } as RequestInit & { cf: { cacheTtl: number; cacheEverything: boolean } });

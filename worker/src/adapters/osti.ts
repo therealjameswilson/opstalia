@@ -89,7 +89,7 @@ export class OstiAdapter implements SourceAdapter<OstiResult> {
 
     const response = await fetch(upstream, {
       headers: { Accept: "application/json", "User-Agent": "Opstalia/1.0 official records research" },
-      redirect: "error",
+      redirect: "manual",
       signal: context.signal,
       cf: { cacheTtl: 0, cacheEverything: false }
     } as RequestInit & { cf: { cacheTtl: number; cacheEverything: boolean } });
