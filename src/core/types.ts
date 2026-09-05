@@ -228,6 +228,19 @@ export interface PdfPacketSource {
   inspectedAt: string;
 }
 
+export interface PdfPacketDerivativeReceipt {
+  id: string;
+  exportedAt: string;
+  batchId?: string;
+  fileName: string;
+  title: string;
+  startPage: number;
+  endPage: number;
+  pageCount: number;
+  sourceSha256: string;
+  derivativeSha256: string;
+}
+
 export interface PdfPacketSegment {
   id: string;
   kind: PdfPacketSegmentKind;
@@ -243,6 +256,7 @@ export interface PdfPacketSegment {
   identifier?: string;
   releaseStatus: ReleaseDetermination;
   notes?: string;
+  derivativeExports?: PdfPacketDerivativeReceipt[];
   detectionMethod: PdfPacketDetectionMethod;
   confidence: number;
   reasons: string[];
@@ -266,6 +280,8 @@ export interface PdfPacketProject {
   scan: {
     pagesScanned: number;
     pagesWithText: number;
+    pagesWithAnnotations?: number;
+    annotationPages?: number[];
     completedAt?: string;
     limitedReason?: string;
   };

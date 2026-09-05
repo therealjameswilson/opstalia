@@ -58,7 +58,7 @@ The frontend provides:
 - concurrent per-source orchestration with partial results;
 - normalized result filtering, ranking, version grouping, and review;
 - comparison, text diff, and manual page alignment;
-- the PDF Packet Lab's local PDF.js in-memory viewer, embedded-text scan, deterministic boundary proposals, reviewed page-range/described-item register, and browser-worker derivative export;
+- the PDF Packet Lab's local PDF.js in-memory viewer, annotation-aware embedded-text scan, deterministic boundary proposals, reviewed page-range/described-item register, and single or batch browser-worker derivative export;
 - exemption-code reference data;
 - local project and packet-manifest storage and private mode; and
 - Markdown, CSV, JSON, and printable HTML exports.
@@ -120,7 +120,7 @@ For the PDF Packet Lab, it:
 - creates a two-hour HMAC-SHA-256 token signed with `RATE_LIMIT_SALT`; the token signs the source ID, NAID, canonical record and PDF URLs, any available ETag/last-modified validators, and expiration together to prevent tampering, not to establish the archival association;
 - rejects byte-range requests and accepts exactly one declared browser purpose: opening the packet or creating a derivative;
 - for opening, starts a new no-redirect `GET` and passes one complete response through to the browser, terminating the stream if more than 100 MiB arrives even when no usable `Content-Length` was visible;
-- for derivative export, starts a second complete stream under a distinct three-requests-per-minute rate scope; the browser must compute the same source SHA-256 that it recorded during opening before producing a derivative;
+- for derivative export, issues a fresh signed session and starts one complete stream under a distinct three-requests-per-minute rate scope; a batch reuses that one downloaded copy for all selected ranges, and the isolated processor must verify the opening SHA-256 before parsing or producing output;
 - validates upstream status and content type plus any available length, ETag, or Last-Modified consistency before streaming the body to the browser;
 - allows only the configured frontend origin and rate-limits session, view, and derivative purposes separately;
 - sets `Cache-Control: no-store, private, max-age=0`, uses no application response cache or durable storage, and does not parse, OCR, transform, index, or retain the PDF; and
@@ -162,7 +162,7 @@ Manual adapters never manufacture normalized results. They return a `manual_avai
 - the structured target and generated plan;
 - browser-local index searches and results;
 - saved records, comparison sets, annotations, audit events, and reports;
-- packet source locators, reviewed range/described-item manifests, scan counts, notes, and hashes in non-private mode;
+- packet source locators, reviewed range/described-item manifests, scan and annotation-page counts, notes, and structured derivative receipts in non-private mode;
 - PDF bytes, rendered pages, and embedded page text only in transient browser memory while a packet is open;
 - all private-mode project state; and
 - researcher corrections and judgments.
@@ -173,7 +173,7 @@ Manual adapters never manufacture normalized results. They return a `manual_avai
 - a validated `NormalizedSearchQuery` sent by POST to the Worker for each selected Worker-backed plan query: the structured target with its local notes field explicitly removed, the one generated query, result limit, optional cursor, and private-mode flag;
 - only the source-specific supported parameters constructed by the Worker and sent to the selected official API. NARA receives its documented Catalog parameters and API key; GovInfo receives its documented search payload and API key; NTRS and OSTI receive documented public-API query parameters without an Opstalia source key; and
 - when the researcher opens a packet, the acknowledged NAID, canonical NARA record URL, and canonical presidential-library PDF URL sent to the Worker; the Worker sends `HEAD`, starts a full `GET`, reads only the five-byte signature prefix, and cancels that admission response;
-- the short-lived signed token and a packet-view request sent to the Worker, followed by one complete official PDF stream into browser memory; a derivative request later causes a second complete stream, and both streams are hard-limited to 100 MiB; and
+- the short-lived signed token and a packet-view request sent to the Worker, followed by one complete official PDF stream into browser memory; a later single or batch derivative request uses one new signed session and one fresh complete stream, and every stream is hard-limited to 100 MiB; and
 - ordinary navigation requests when a researcher opens a manual adapter or official record; for a prefilled handoff, the official URL contains the prepared terms and supported filters but never the local research-notes field.
 
 The application includes no third-party analytics, advertising, user accounts, or remote font dependency.
@@ -193,7 +193,7 @@ NARA API results—including `nara-cia-rg263` and `nara-state-rg59` profile resu
 
 FRUS, ISCAP, NDC, and NARA JFK static-index records may be retained because they are checked-in public source snapshots with build provenance. The JFK artifact contains only official filename/RIF table metadata and NARA PDF links, not PDF text or Doctly content. GovInfo, NTRS, and OSTI public response records may be retained in browser-local projects under their declared registry policies; the Worker itself does not persist them.
 
-The PDF Packet Lab does not relax the Catalog API no-storage rule. It does not persist Catalog API metadata or raw responses. A saved packet register contains only the researcher-supplied canonical NARA locators, any available source validators, received byte length, browser-computed source SHA-256, PDF page count, scan counts, researcher decisions, notes, and derivative hashes. PDF bytes, page canvases, thumbnails, extracted page text, and relay tokens remain out of IndexedDB and project exports. Reopening a register downloads the official source again and preserves reviewed decisions only when both the received byte length and newly computed SHA-256 match the saved source. Otherwise every non-rejected decision returns to `proposed` for re-review; an earlier researcher rejection remains recorded.
+The PDF Packet Lab does not relax the Catalog API no-storage rule. It does not persist Catalog API metadata or raw responses. A saved packet register contains only the researcher-supplied canonical NARA locators, any available source validators, received byte length, browser-computed source SHA-256, PDF page count, scan and annotation-page counts, researcher decisions, notes, and structured derivative receipts. PDF bytes, page canvases, thumbnails, extracted page text, ZIP contents, and relay tokens remain out of IndexedDB and project exports. Reopening a register downloads the official source again and preserves reviewed decisions only when both the received byte length and newly computed SHA-256 match the saved source. Otherwise every non-rejected decision returns to `proposed` for re-review, derivative receipts are cleared, and an earlier researcher rejection remains recorded.
 
 ## Official-source enforcement
 
@@ -242,7 +242,7 @@ ingest the unofficial Doctly Markdown corpus.
 
 ## PDF Packet Lab design
 
-The Packet Lab is not a fifth static index and is not an automated search adapter. It is a researcher-operated workspace over one approved, already-public NARA PDF. Opening downloads one complete source through the Worker into transient browser memory, subject to a hard 100 MiB streaming cap. The browser verifies the signature, records the received length, computes SHA-256, and then gives the in-memory bytes to PDF.js. PDF.js performs page access locally with script evaluation and XFA disabled, annotations omitted from page rendering, and image/canvas work bounded; it makes no page-range requests to NARA or Cloudflare.
+The Packet Lab is not a fifth static index and is not an automated search adapter. It is a researcher-operated workspace over one approved, already-public NARA PDF. Opening downloads one complete source through the Worker into transient browser memory, subject to a hard 100 MiB streaming cap. The browser verifies the signature, records the received length, computes SHA-256, and then gives the in-memory bytes to PDF.js. PDF.js performs page access locally with script evaluation and XFA disabled, inert annotation appearances preserved in canvas rendering, and image/canvas work bounded; it makes no page-range requests to NARA or Cloudflare. Embedded text is suppressed on every annotation-bearing page because an annotation may visually cover text that remains in the PDF data.
 
 The scan streams at most the text already embedded on each PDF page and keeps only bounded text in memory: 50,000 characters per page, 32 Mi characters across one scan, and 5,000 pages. It does not run OCR, submit bytes or text to AI, or call another analysis service. Hitting a ceiling produces a recorded limitation and leaves later or truncated pages for manual review. Deterministic patterns can propose starts and ends for memcons, telcons, memoranda, and withdrawal/redaction sheets, but every proposal retains its reasons, confidence, and review status. Researcher rejection is preserved rather than deleting the audit trail.
 
@@ -251,7 +251,7 @@ The packet register separates two evidence lanes:
 1. `page_range` means the specified content pages are physically present in the PDF. It is a researcher-created locator, defaults to `not_determined`, and can be corrected, confirmed, or rejected.
 2. `described_item` means a withdrawal sheet, finding aid, or similar page describes an underlying item whose content pages have not been located. A researcher-created item defaults to `not_determined`; the deterministic detector proposes `withdrawal_notice_only` only when visible embedded text matches a withdrawal/redaction-sheet heading. It may record stated extent and evidence-page numbers, but it cannot carry start/end content pages or produce a derivative PDF.
 
-Derivative generation requests a second complete source stream under a separate three-requests-per-minute scope. The relay checks any available ETag or Last-Modified value and enforces the same hard 100 MiB streaming cap. In the isolated browser Web Worker, `pdf-lib` computes the second copy's source SHA-256 and refuses export unless it matches the hash computed when the packet was opened. It then rebuilds only the confirmed page range, removes every copied page's `/AA` additional-action dictionary and `/Annots` annotation array, adds provenance metadata, and computes derivative SHA-256. The processor is cancellable and is terminated after two minutes. Because it rebuilds the file and strips active structures, the output is deliberately not byte-identical and is labeled a research derivative, not an official source file. Sources above 100 MiB are unsupported by the Packet Lab.
+Derivative generation requests one fresh complete source stream under a separate three-requests-per-minute scope. A batch uses that one stream for every selected confirmed range. The relay checks any available ETag or Last-Modified value and enforces the same hard 100 MiB streaming cap. In the isolated browser Web Worker, `pdf-lib` computes the fresh copy's source SHA-256 and refuses export before parsing unless it matches the hash computed when the packet was opened. It then checks every selected page before producing any file. A non-empty `/Annots` array blocks the entire export because removing a covering annotation could reveal underlying text. For annotation-free pages the worker rebuilds the range, removes `/AA` additional actions and empty annotation arrays, adds provenance metadata, and computes derivative SHA-256. The processor is cancellable and is terminated after five minutes. Batch preflight reports bounds errors, exact duplicates, overlaps, and uncovered gaps; the ZIP contains ordered derivatives and checksummed manifests but never the complete source or extracted text. Because the files are rebuilt and active structures are stripped, the outputs are deliberately not byte-identical and are labeled research derivatives, not official source files. Sources above 100 MiB are unsupported by the Packet Lab.
 
 ## Release and analysis design
 

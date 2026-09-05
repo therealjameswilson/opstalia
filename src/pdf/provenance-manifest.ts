@@ -1,11 +1,6 @@
 import type { PdfPacketProject, PdfPacketSegment } from "../core/types";
 import { pageRangeLabel } from "./page-ranges";
-
-function csvCell(value: unknown): string {
-  let text = value === undefined || value === null ? "" : String(value);
-  if (/^[=+\-@]/.test(text)) text = `'${text}`;
-  return `"${text.replaceAll('"', '""')}"`;
-}
+import { safeCsvCell, safeMarkdownText, safeMarkdownUrl } from "./export-safety";
 
 export function packetManifest(project: PdfPacketProject): Record<string, unknown> {
   return {
@@ -41,7 +36,8 @@ export function packetManifest(project: PdfPacketProject): Record<string, unknow
       "Whether the researcher-supplied Catalog record lists this PDF",
       "Whether every page is declassified",
       "Whether a page range is an official standalone document",
-      "Text not present in the PDF text layer"
+      "Text not present in the PDF text layer",
+      "Text suppressed on annotation-bearing pages"
     ]
   };
 }
@@ -93,7 +89,7 @@ export function packetManifestCsv(project: PdfPacketProject): string {
     project.source.officialPdfUrl,
     project.source.sha256
   ]);
-  return [header, ...rows].map((row) => row.map(csvCell).join(",")).join("\n") + "\n";
+  return [header, ...rows].map((row) => row.map(safeCsvCell).join(",")).join("\n") + "\n";
 }
 
 function segmentCitation(project: PdfPacketProject, segment: PdfPacketSegment): string {
@@ -105,24 +101,24 @@ function segmentCitation(project: PdfPacketProject, segment: PdfPacketSegment): 
 
 export function packetManifestMarkdown(project: PdfPacketProject): string {
   const segments = project.segments.map((segment, index) => [
-    `### ${index + 1}. ${segment.title}`,
+    `### ${index + 1}. ${safeMarkdownText(segment.title)}`,
     "",
     `- Evidence lane: ${segment.kind === "page_range" ? "Researcher-defined page range" : "Described item only"}`,
     `- Locator: ${segmentCitation(project, segment)}`,
     `- Release status: ${segment.releaseStatus.status}`,
-    `- Determination basis: ${segment.releaseStatus.determinationBasis}`,
+    `- Determination basis: ${safeMarkdownText(segment.releaseStatus.determinationBasis)}`,
     `- Detection/review: ${segment.detectionMethod}; ${segment.reviewStatus}; confidence ${Math.round(segment.confidence * 100)}%`,
-    `- Reasons: ${segment.reasons.join("; ") || "Researcher-defined"}`
+    `- Reasons: ${segment.reasons.length ? segment.reasons.map(safeMarkdownText).join("; ") : "Researcher-defined"}`
   ].join("\n")).join("\n\n");
   return [
-    `# ${project.name}`,
+    `# ${safeMarkdownText(project.name)}`,
     "",
     "> Research derivative — not an official source file. Official source records and agency determinations control.",
     "",
     `- Researcher-supplied NARA NAID: ${project.source.naraNaid ?? "Not recorded"}`,
-    `- Researcher-supplied official record locator: ${project.source.officialRecordUrl ?? "Not recorded"}`,
+    `- Researcher-supplied official record locator: ${project.source.officialRecordUrl ? safeMarkdownUrl(project.source.officialRecordUrl) : "Not recorded"}`,
     "- PDF/record association verified by Opstalia: No; confirm it on the official Catalog page",
-    `- Official packet: ${project.source.officialPdfUrl}`,
+    `- Official packet: ${safeMarkdownUrl(project.source.officialPdfUrl)}`,
     `- PDF pages: ${project.source.pageCount}`,
     `- Source SHA-256: ${project.source.sha256 ?? "Not computed; the original packet was not fully downloaded"}`,
     "",
@@ -130,6 +126,6 @@ export function packetManifestMarkdown(project: PdfPacketProject): string {
     "",
     "## Caveats",
     "",
-    "A page range is a researcher-created locator, not proof of an official standalone release. More visible text does not establish authenticity, completeness, or release in full. Described-only items do not have exportable content pages. Active page actions and annotations are removed from derivative PDFs for safety, so a derivative is not byte-identical to the source pages."
+    "A page range is a researcher-created locator, not proof of an official standalone release. More visible text does not establish authenticity, completeness, or release in full. Described-only items do not have exportable content pages. Annotation-bearing pages are refused because removing a covering annotation could reveal underlying text. Annotation-free derivatives remove active page actions and are not byte-identical to the source pages."
   ].join("\n") + "\n";
 }

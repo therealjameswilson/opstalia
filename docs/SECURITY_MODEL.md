@@ -107,7 +107,7 @@ flowchart LR
     B["Researcher's browser<br/>public unclassified locator only"]
     W["Cloudflare Worker<br/>strict admission + bounded full-file relay"]
     N["NARA Catalog media<br/>approved presidential-library PDF"]
-    P["PDF.js + browser Web Worker<br/>in-memory view, embedded text, beta derivative"]
+    P["PDF.js + browser Web Worker<br/>annotation-aware view, safety-checked text, batch derivatives"]
     I["IndexedDB<br/>manifest only when non-private"]
 
     B -->|"POST researcher-supplied NAID + canonical record/PDF URLs + acknowledgement"| W
@@ -117,13 +117,13 @@ flowchart LR
     W -->|"full GET; hard 100 MiB stream cap"| N
     N -->|"official PDF bytes"| W
     W -->|"streamed bytes; no-store"| P
-    P -->|"locators, reviewed ranges, scan counts, notes, hashes"| I
+    P -->|"locators, reviewed ranges, scan/annotation counts, notes, export receipts"| I
 ```
 
 No source PDF is uploaded to Opstalia. Admission reads only the `%PDF-` prefix
 from its GET response and cancels the rest. Opening then streams one complete
-copy from the approved NARA host through Cloudflare into browser memory; creating
-a derivative streams a second complete copy. Worker application code does not
+copy from the approved NARA host through Cloudflare into browser memory; a
+single or batch derivative operation streams one fresh complete copy. Worker application code does not
 parse, OCR, transform, index, cache, store, or log those bytes. Provider
 infrastructure may retain ordinary telemetry outside the application's control.
 
@@ -259,18 +259,24 @@ path remains `/opstalia/`.
    records the actual received length, computes SHA-256, and gives the completed
    bytes to PDF.js. PDF.js performs page access and embedded-text extraction
    locally without further source requests.
-9. A beta derivative request deliberately starts a second complete source
-   stream under a separate three-requests-per-minute rate scope and the same
-   100 MiB cap. A local Web Worker computes the second copy's source SHA-256 and
-   refuses export unless it matches the hash computed during opening. `pdf-lib`
-   then rebuilds the reviewed page range, removes each copied page's `/AA`
-   additional-action dictionary and `/Annots` annotation array, and computes
-   derivative SHA-256. The processor can be cancelled and is terminated after
-   two minutes. The research derivative is not byte-identical to the official
-   source.
+9. A beta single or batch derivative request deliberately starts one fresh
+   complete source stream under a separate three-requests-per-minute rate scope
+   and the same 100 MiB cap. A local Web Worker computes that copy's source
+   SHA-256 and refuses export before parsing unless it matches the hash computed
+   during opening. `pdf-lib` preflights every selected page before producing any
+   file and refuses the whole operation if a selected page has a non-empty
+   `/Annots` array: removing a covering annotation could expose underlying text.
+   On annotation-free pages it rebuilds each reviewed range, removes `/AA`
+   additional-action dictionaries and empty annotation arrays, and computes each
+   derivative SHA-256. A batch reuses this one verified copy for all selected
+   ranges and packages the outputs with checksummed manifests. The processor can
+   be cancelled and is terminated after five minutes. Research derivatives are
+   not byte-identical to the official source.
 
 PDF.js reads embedded text page by page from the in-memory source rather than
-creating one unbounded text object.
+creating one unbounded text object. Annotation appearances are rendered into the
+inert canvas, but the separate text view and deterministic scan suppress all
+embedded text for any page that reports one or more annotations.
 Opstalia retains at most 50,000 characters per page, 32 Mi characters across a
 scan, and 5,000 scanned pages. Reaching a ceiling records a limitation and leaves
 later or truncated pages for manual review; no OCR or AI fallback is attempted.
@@ -491,14 +497,20 @@ publication/STI status into declassification evidence.
 
 A non-private PDF packet register stores only its validated official locators,
 NAID, actual received source size, any available validators, browser-computed
-source SHA-256, page count, scan counts, researcher-created or reviewed
-`page_range` and `described_item` entries, notes, and derivative hashes. PDF bytes, page images/canvases, thumbnails,
+source SHA-256, page count, scan and annotation-page counts, researcher-created or reviewed
+`page_range` and `described_item` entries, notes, and structured derivative receipts tied to an exact register snapshot. PDF bytes, page images/canvases, thumbnails,
 extracted embedded text, and transport tokens are not written to IndexedDB. A
 private packet register remains in memory and disappears with the tab. When a
 saved register is reopened, the full source is transferred and hashed again.
 Reviewed decisions survive only if actual byte length and SHA-256 match the saved
 source; otherwise every non-rejected decision returns to `proposed` for
 re-review. A prior rejection remains recorded.
+
+A register saved before the annotation-aware 1.3 scan has no annotation-page
+metadata. On reopen, Opstalia removes its pattern-generated suggestions, clears
+earlier derivative receipts, resets retained non-rejected researcher-defined
+items to `proposed`, and requires a new scan and human review. This changes only
+the browser-local manifest and never the official source.
 
 ### Private mode
 
@@ -516,17 +528,22 @@ downloads, provider logs, or device monitoring.
 - The comparison viewer uses a sandboxed iframe for approved official file
   URLs.
 - PDF Packet Lab page rendering uses local PDF.js over a completed in-memory
-  source, with `isEvalSupported: false`, XFA disabled,
-  annotations disabled, parser errors treated as failures, bounded page-image
-  work, and no source HTML insertion.
+  source, with `isEvalSupported: false`, XFA disabled, inert annotation
+  appearances enabled, no interactive annotation layer, parser errors treated
+  as failures, bounded page-image work, and no source HTML insertion.
 - The deterministic packet scan consumes only PDF-embedded text and keeps it in
   memory, bounded to 50,000 characters per page, 32 Mi characters total, and
-  5,000 pages; no OCR, AI provider, or external analysis endpoint receives it.
+  5,000 pages; it suppresses all text on annotation-bearing pages, and no OCR,
+  AI provider, or external analysis endpoint receives it.
 - Eligible derivative generation uses a dedicated browser Web Worker and
-  `pdf-lib`; it removes copied-page `/AA` actions and `/Annots` annotations,
-  malformed/encrypted inputs fail closed, cancellation terminates the worker,
-  and a two-minute timer terminates unfinished processing. The rebuilt output is
-  not byte-identical to the source.
+  `pdf-lib`; it checks the expected source hash before parsing, preflights every
+  selected page, blocks the whole operation when any selected page contains
+  annotations, and removes `/AA` actions and empty annotation arrays only from
+  annotation-free copied pages. Malformed/encrypted inputs fail closed,
+  cancellation terminates the worker, and a five-minute timer terminates
+  unfinished processing. A batch is limited to 200 derivatives, 5,000 selected
+  page copies, and 200 MiB of output. Rebuilt output is not byte-identical to the
+  source.
 - The frontend's meta Content Security Policy restricts scripts, connections,
   images, frames, objects, base URLs, and form actions.
 
@@ -548,8 +565,9 @@ an approved official URL. The Packet Lab is the narrow exception to direct
 browser fetching: the Worker full-streams bytes only for the exact admitted NARA
 presidential-library path and enforces a hard 100 MiB cap. It does not parse or
 transform the PDF. PDF.js parses and renders the completed source locally; the
-optional `pdf-lib` derivative downloads a second copy, verifies matching source
-SHA-256, and runs in a browser Web Worker. Official provenance does not make a
+optional `pdf-lib` single or batch derivative downloads one fresh copy, verifies
+matching source SHA-256 before parsing, blocks annotated pages, and runs in a
+browser Web Worker. Official provenance does not make a
 file non-malicious. See
 [`REDACTION_ANALYSIS.md`](REDACTION_ANALYSIS.md) and
 [`THREAT_MODEL.md`](THREAT_MODEL.md).
@@ -579,10 +597,13 @@ Before release:
    or source-SHA-256 changes reset saved review state; verify no PDF byte, page
    image, text layer, or token reaches IndexedDB or application logs;
 10. verify text scans stop at 50,000 characters per page, 32 Mi characters total,
-   or 5,000 pages; view streams use their six-per-minute scope; derivative streams
-   use their three-per-minute scope and require a matching source hash; and derivative
-   workers support cancellation, stop after two minutes, remove `/AA` and
-   `/Annots`, and label non-byte-identical output as a research derivative;
+   or 5,000 pages and suppress text on annotation-bearing pages; view streams use
+   their six-per-minute scope; derivative streams use their three-per-minute scope
+   and require a matching source hash before parsing; and derivative workers
+   support cancellation, stop after five minutes, block any selected page with
+   annotations, remove `/AA` and empty annotation arrays only from annotation-free
+   pages, enforce batch/output limits, and label non-byte-identical output as a
+   research derivative;
 11. verify the deployed frontend uses the intended Worker URL and the Worker
    uses the intended frontend origin;
 12. compare deployed artifacts with the release commit; and
