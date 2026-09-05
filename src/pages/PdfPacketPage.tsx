@@ -115,7 +115,9 @@ function SegmentCard({
   onChange,
   onNavigate,
   onExport,
+  onCancelExport,
   exportBusy,
+  exportActive,
   selectedForBatch,
   onBatchSelection
 }: {
@@ -124,7 +126,9 @@ function SegmentCard({
   onChange: (segment: PdfPacketSegment) => void;
   onNavigate: (page: number) => void;
   onExport: (segment: PdfPacketSegment) => void;
+  onCancelExport: () => void;
   exportBusy: boolean;
+  exportActive: boolean;
   selectedForBatch: boolean;
   onBatchSelection: (selected: boolean) => void;
 }) {
@@ -311,7 +315,16 @@ function SegmentCard({
               : confirmed ? "Create a research derivative from the confirmed page range" : "Confirm the range before exporting"}
             onClick={() => onExport(segment)}
           >
-            {exportBusy ? "Derivative export in progress…" : "Export derivative PDF"}
+            {exportActive ? "Derivative export in progress…" : "Export derivative PDF"}
+          </button>
+        )}
+        {exportActive && (
+          <button
+            className="text-button"
+            aria-label={`Cancel derivative export for ${segment.title}`}
+            onClick={onCancelExport}
+          >
+            Cancel derivative export
           </button>
         )}
         <button
@@ -379,6 +392,7 @@ export default function PdfPacketPage() {
   const [exportProgress, setExportProgress] = useState(0);
   const [isScanning, setIsScanning] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
+  const [activeExportId, setActiveExportId] = useState<string>();
   const [renderScale, setRenderScale] = useState(1.25);
   const [fitWidth, setFitWidth] = useState(true);
   const [pageAnnouncement, setPageAnnouncement] = useState("");
@@ -852,6 +866,7 @@ export default function PdfPacketPage() {
     setExportProgress(0);
     exportingRef.current = true;
     setIsExporting(true);
+    setActiveExportId(segment.id);
     const controller = new AbortController();
     exportControllerRef.current = controller;
     const snapshot = project;
@@ -898,12 +913,19 @@ export default function PdfPacketPage() {
       setStatus(`Derivative downloaded from one fresh source transfer. Source SHA-256 ${result.sourceSha256}; derivative SHA-256 ${result.derivativeSha256}.`);
     } catch (cause) {
       if (sessionGeneration !== openGenerationRef.current) return;
-      setError(cause instanceof Error ? cause.message : "Unable to export the research derivative.");
-      setStatus("");
+      if (controller.signal.aborted || (cause instanceof Error && cause.name === "AbortError")) {
+        setError("");
+        setStatus("Derivative export cancelled. No derivative was downloaded.");
+        setExportProgress(0);
+      } else {
+        setError(cause instanceof Error ? cause.message : "Unable to export the research derivative.");
+        setStatus("");
+      }
     } finally {
       if (exportControllerRef.current === controller) {
         exportingRef.current = false;
         setIsExporting(false);
+        setActiveExportId(undefined);
         exportControllerRef.current = undefined;
       }
     }
@@ -927,6 +949,7 @@ export default function PdfPacketPage() {
     setExportProgress(0);
     exportingRef.current = true;
     setIsExporting(true);
+    setActiveExportId("batch");
     const controller = new AbortController();
     exportControllerRef.current = controller;
     const snapshot = project;
@@ -1012,12 +1035,19 @@ export default function PdfPacketPage() {
       setStatus(`Batch research packet downloaded: ${planSnapshot.derivativeItems.length} derivative PDF${planSnapshot.derivativeItems.length === 1 ? "" : "s"}, manifests, and SHA-256 checksums from one fresh official-source transfer.`);
     } catch (cause) {
       if (sessionGeneration !== openGenerationRef.current) return;
-      setError(cause instanceof Error ? cause.message : "Unable to export the batch research packet.");
-      setStatus("");
+      if (controller.signal.aborted || (cause instanceof Error && cause.name === "AbortError")) {
+        setError("");
+        setStatus("Batch export cancelled. No research packet was downloaded.");
+        setExportProgress(0);
+      } else {
+        setError(cause instanceof Error ? cause.message : "Unable to export the batch research packet.");
+        setStatus("");
+      }
     } finally {
       if (exportControllerRef.current === controller) {
         exportingRef.current = false;
         setIsExporting(false);
+        setActiveExportId(undefined);
         exportControllerRef.current = undefined;
       }
     }
@@ -1422,8 +1452,13 @@ export default function PdfPacketPage() {
                     }
                     onClick={() => void exportBatch()}
                   >
-                    {isExporting ? "Building research packet…" : `Export ${batchPlan.derivativeItems.length} selected range${batchPlan.derivativeItems.length === 1 ? "" : "s"} as ZIP`}
+                    {activeExportId === "batch" ? "Building research packet…" : `Export ${batchPlan.derivativeItems.length} selected range${batchPlan.derivativeItems.length === 1 ? "" : "s"} as ZIP`}
                   </button>
+                  {activeExportId === "batch" && (
+                    <button className="text-button" onClick={() => exportControllerRef.current?.abort()}>
+                      Cancel batch export
+                    </button>
+                  )}
                   <span id="packet-batch-export-help" className="fine-print">{batchExportHelp} Maximum 200 derivatives, 5,000 selected page copies, 200 MB of derivative PDFs, and a 100 MB official source.</span>
                 </div>
               </section>
@@ -1454,7 +1489,9 @@ export default function PdfPacketPage() {
                 }}
                 onNavigate={setCurrentPage}
                 onExport={(item) => void exportDerivative(item)}
+                onCancelExport={() => exportControllerRef.current?.abort()}
                 exportBusy={isExporting}
+                exportActive={activeExportId === segment.id}
                 selectedForBatch={selectedSegmentIds.includes(segment.id)}
                 onBatchSelection={(selected) => {
                   setSelectedSegmentIds((current) => selected
@@ -1465,11 +1502,6 @@ export default function PdfPacketPage() {
                 }}
               />
             )) : <p className="empty-state">No item ranges yet. Add one manually or scan the PDF text for suggestions.</p>}
-            {isExporting && (
-              <button className="text-button" onClick={() => exportControllerRef.current?.abort()}>
-                Cancel derivative export
-              </button>
-            )}
             {exportProgress > 0 && project.source.byteLength && (
               <div>
                 <progress value={exportProgress} max={project.source.byteLength} aria-label="Source download progress for derivative export">

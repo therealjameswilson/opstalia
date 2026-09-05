@@ -25,6 +25,7 @@ All notable changes to Opstalia are documented in this file. The project follows
 
 - Made checked-in demonstration projects opt-in instead of automatically presenting their records as browser-saved research.
 - Added a one-time, fixture-only cleanup for demonstration projects persisted by earlier builds; ordinary researcher projects and saved records are left untouched.
+- Kept bounded Worker error explanations visible in the Packet Lab and placed neutral cancel controls beside the active single or batch export action.
 - Advanced the compatible Cloudflare search/relay API to backend revision 1.3.0; no new routes, bindings, secrets, or source-key changes are required.
 
 ## [1.2.0] - 2026-07-30
