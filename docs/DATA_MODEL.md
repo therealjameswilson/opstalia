@@ -204,6 +204,34 @@ A browser-local note optionally attached to a record or version group.
 
 Records an Opstalia or researcher action, timestamp, affected ID, and basis. This is a local research audit trail, not a security log or agency record.
 
+### `PdfPacketProject`
+
+The PDF Packet Lab keeps a separate, manifest-only browser-local aggregate for
+one researcher-supplied NARA presidential-library PDF locator. It records:
+
+- the canonical PDF and Catalog record locators, NAID, any available validators,
+  received byte length, browser-computed source SHA-256, and page count;
+- bounded scan metadata, including scanned/truncated pages, safety-suppressed
+  annotation pages, and whether a scan limit was reached;
+- `page_range` segments with physical page bounds, title, optional date, type,
+  identifier, release-status judgment, decision, notes, and provenance; and
+- `described_item` entries for material mentioned by a withdrawal sheet or
+  finding aid but not located as content pages.
+
+A `PdfPacketDerivativeReceipt` binds each completed export to the exact segment
+ID, title, page bounds, source SHA-256, derivative SHA-256, filename, byte size,
+and timestamp used for that operation. This prevents a later register edit from
+silently changing what an earlier hash represented. Receipts and review
+decisions are cleared or reset when a newly downloaded source has a different
+received length or SHA-256.
+
+The batch export planner accepts only selected confirmed or researcher-corrected
+page ranges. It reports invalid or out-of-bounds ranges, exact duplicates,
+overlaps, and uncovered source gaps. Described-only entries and rejected,
+proposed, pending, or unselected ranges never produce a PDF; they remain visible
+in the manifest. Runtime limits cap a batch at 200 derivatives, 5,000 selected
+page copies, and 200 MiB of derivative output.
+
 ### `SearchProject`
 
 The aggregate root:

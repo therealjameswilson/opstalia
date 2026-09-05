@@ -2567,6 +2567,13 @@ details summary {
   font-size: 0.78rem;
 }
 
+.packet-metadata-fields {
+  display: grid;
+  margin-top: 0.8rem;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.7rem;
+}
+
 .packet-current-range-actions {
   display: flex;
   margin: 0.7rem 0;
@@ -2585,6 +2592,123 @@ details summary {
   color: #533c12;
   background: var(--gold-100);
   border-left: 5px solid var(--gold-700);
+}
+
+.packet-batch-panel {
+  margin: 1rem 0 1.5rem;
+  padding: clamp(1rem, 2vw, 1.5rem);
+  background: #f5f8fa;
+  border: 1px solid var(--slate-300);
+  border-top: 5px solid var(--navy-700);
+}
+
+.packet-batch-panel > header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.packet-batch-panel h3 {
+  margin-bottom: 0.4rem;
+  font-family: var(--font-serif);
+  font-size: 1.45rem;
+}
+
+.packet-batch-actions {
+  display: flex;
+  margin-top: 0.9rem;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+}
+
+.packet-batch-panel > header .packet-batch-actions {
+  margin-top: 0;
+  justify-content: flex-end;
+}
+
+.packet-batch-summary {
+  display: grid;
+  margin: 1rem 0;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 0.6rem;
+}
+
+.packet-batch-summary > div {
+  padding: 0.7rem;
+  background: white;
+  border: 1px solid var(--cream-200);
+}
+
+.packet-batch-summary dt {
+  color: var(--slate-700);
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.packet-batch-summary dd {
+  margin: 0.25rem 0 0;
+  color: var(--navy-900);
+  font: 700 1.25rem/1 var(--font-serif);
+}
+
+.packet-preflight-issues {
+  max-height: 260px;
+  overflow: auto;
+}
+
+.packet-batch-file-plan {
+  margin: 0.75rem 0;
+}
+
+.packet-batch-file-plan ol,
+.packet-batch-file-plan ul {
+  max-height: 320px;
+  overflow: auto;
+}
+
+.packet-batch-file-plan li + li {
+  margin-top: 0.65rem;
+}
+
+.packet-batch-file-plan code {
+  overflow-wrap: anywhere;
+}
+
+.packet-preflight-issues li[data-severity="error"] {
+  color: var(--red-700);
+}
+
+.packet-batch-confirm,
+.packet-batch-select {
+  display: flex;
+  margin-top: 0.8rem;
+  align-items: flex-start;
+  gap: 0.55rem;
+}
+
+.packet-batch-confirm input,
+.packet-batch-select input {
+  width: 18px;
+  height: 18px;
+  flex: 0 0 auto;
+  accent-color: var(--red-700);
+}
+
+.packet-annotation-warning {
+  margin: 0.8rem 0;
+  padding: 0.8rem;
+  color: #4f1717;
+  background: var(--red-100);
+  border-left: 4px solid var(--red-700);
+}
+
+.packet-export-receipts {
+  margin-top: 0.8rem;
+  overflow-wrap: anywhere;
 }
 
 .packet-segment {
@@ -2659,6 +2783,10 @@ details summary {
 
   .packet-workspace {
     grid-template-columns: 1fr;
+  }
+
+  .packet-batch-summary {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 
   .packet-tools {
@@ -2781,7 +2909,8 @@ details summary {
   .packet-entry > header,
   .packet-viewer > header,
   .packet-register > header,
-  .packet-source-bar {
+  .packet-source-bar,
+  .packet-batch-panel > header {
     align-items: stretch;
     flex-direction: column;
   }
@@ -2833,7 +2962,9 @@ details summary {
   }
 
   .packet-entry-grid,
-  .packet-range-fields {
+  .packet-range-fields,
+  .packet-metadata-fields,
+  .packet-batch-summary {
     grid-template-columns: 1fr;
   }
 

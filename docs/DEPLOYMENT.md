@@ -302,7 +302,7 @@ After review:
 ```bash
 git status --short
 git add .
-git commit -m "Release Opstalia 1.2.0"
+git commit -m "Release Opstalia 1.3.0"
 git push origin main
 ```
 
@@ -326,7 +326,7 @@ Then verify in a browser:
 2. the independent-site and unclassified notices are visible;
 3. a search cannot proceed without acknowledgement;
 4. FRUS, ISCAP, NDC, and the optional NARA JFK index return local-index results for known fixture terms or RIFs;
-5. Worker health reports version `1.2.0`, the registered adapters, and only Boolean secret readiness, including `pdfRelayConfigured` without exposing `RATE_LIMIT_SALT`;
+5. Worker health reports the independently deployed backend revision `1.2.0`, the registered adapters, and only Boolean secret readiness, including `pdfRelayConfigured` without exposing `RATE_LIMIT_SALT`;
 6. when `NARA_API_KEY` is installed, an exact general-NARA NAID search produces a transient official result; after explicitly opting into each RG profile, its results remain visibly NARA-only;
 7. when `GOVINFO_API_KEY` is installed, GovInfo runs without implying declassification evidence;
 8. NTRS and OSTI run through the Worker without a source API key and retain their STI/publication caveats;
@@ -334,7 +334,7 @@ Then verify in a browser:
 10. Packet Lab admission accepts only the exact approved NARA host/path and a matching researcher-supplied NAID record locator, performs `HEAD` plus a prefix-only GET/cancel, and labels the association unverified;
 11. opening an eligible packet makes one bounded full-source transfer, computes source SHA-256 in the browser, and gives PDF.js local page access without byte-range requests;
 12. a source whose reported or streamed body exceeds 100 MiB is rejected, including when no usable upstream length is visible;
-13. derivative export makes a second complete source transfer and refuses output when that copy's SHA-256 differs from the opening hash;
+13. a single or batch derivative export makes one fresh complete source transfer, refuses output when that copy's SHA-256 differs from the opening hash, and refuses the whole export when a selected page contains annotations;
 14. neither Worker configuration nor runtime contains an R2, KV, D1, Durable Object, PDF cache, or persisted PDF body;
 15. an unofficial-domain fixture is rejected;
 16. project save, export, import, comparison, and private mode work; and

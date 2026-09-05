@@ -223,6 +223,18 @@ const pdfPacketSegmentSchema = z
     identifier: z.string().max(300).optional(),
     releaseStatus: releaseDeterminationSchema,
     notes: z.string().max(5000).optional(),
+    derivativeExports: z.array(z.object({
+      id: z.string().min(1).max(150),
+      exportedAt: z.string().datetime(),
+      batchId: z.string().max(150).optional(),
+      fileName: z.string().min(1).max(240),
+      title: z.string().min(1).max(500),
+      startPage: z.number().int().positive(),
+      endPage: z.number().int().positive(),
+      pageCount: z.number().int().positive().max(20_000),
+      sourceSha256: z.string().regex(/^[a-f0-9]{64}$/i),
+      derivativeSha256: z.string().regex(/^[a-f0-9]{64}$/i)
+    })).max(100).optional(),
     detectionMethod: z.enum(["researcher_defined", "pattern_match", "source_reported"]),
     confidence: z.number().min(0).max(1),
     reasons: z.array(z.string().max(500)).max(30),
@@ -273,7 +285,7 @@ export const pdfPacketProjectSchema = z
       identifier: z.string().max(300).optional(),
       naraNaid: z.string().regex(/^\d{1,20}$/).optional(),
       pageCount: z.number().int().positive().max(20_000),
-      byteLength: z.number().int().positive().max(536_870_912).optional(),
+      byteLength: z.number().int().positive().max(104_857_600).optional(),
       etag: z.string().max(500).optional(),
       lastModified: z.string().max(200).optional(),
       sha256: z.string().regex(/^[a-f0-9]{64}$/i).optional(),
@@ -283,6 +295,8 @@ export const pdfPacketProjectSchema = z
     scan: z.object({
       pagesScanned: z.number().int().nonnegative().max(20_000),
       pagesWithText: z.number().int().nonnegative().max(20_000),
+      pagesWithAnnotations: z.number().int().nonnegative().max(20_000).optional(),
+      annotationPages: z.array(z.number().int().positive().max(20_000)).max(20_000).optional(),
       completedAt: z.string().max(80).optional(),
       limitedReason: z.string().max(500).optional()
     }),
@@ -290,6 +304,7 @@ export const pdfPacketProjectSchema = z
   })
   .superRefine((project, context) => {
     const ids = new Set<string>();
+    const derivativeReceiptIds = new Set<string>();
     project.segments.forEach((segment, index) => {
       if (ids.has(segment.id)) {
         context.addIssue({
@@ -313,12 +328,52 @@ export const pdfPacketProjectSchema = z
           message: "An evidence-page locator cannot exceed the source PDF page count"
         });
       }
+      segment.derivativeExports?.forEach((receipt, receiptIndex) => {
+        if (derivativeReceiptIds.has(receipt.id)) {
+          context.addIssue({
+            code: "custom",
+            path: ["segments", index, "derivativeExports", receiptIndex, "id"],
+            message: "Packet derivative receipt IDs must be unique"
+          });
+        }
+        derivativeReceiptIds.add(receipt.id);
+        if (
+          receipt.endPage < receipt.startPage ||
+          receipt.endPage > project.source.pageCount ||
+          receipt.pageCount !== receipt.endPage - receipt.startPage + 1
+        ) {
+          context.addIssue({
+            code: "custom",
+            path: ["segments", index, "derivativeExports", receiptIndex],
+            message: "A derivative receipt must contain a consistent source-page snapshot"
+          });
+        }
+        if (!project.source.sha256 || receipt.sourceSha256.toLowerCase() !== project.source.sha256.toLowerCase()) {
+          context.addIssue({
+            code: "custom",
+            path: ["segments", index, "derivativeExports", receiptIndex, "sourceSha256"],
+            message: "A derivative receipt must match the packet source fingerprint"
+          });
+        }
+      });
     });
     if (project.scan.pagesScanned > project.source.pageCount || project.scan.pagesWithText > project.scan.pagesScanned) {
       context.addIssue({
         code: "custom",
         path: ["scan"],
         message: "Packet scan counts must be consistent with the source PDF"
+      });
+    }
+    if (
+      (project.scan.pagesWithAnnotations ?? 0) > project.source.pageCount ||
+      project.scan.annotationPages?.some((page) => page > project.source.pageCount) ||
+      (project.scan.annotationPages && new Set(project.scan.annotationPages).size !== project.scan.annotationPages.length) ||
+      (project.scan.pagesWithAnnotations !== undefined && project.scan.annotationPages && project.scan.pagesWithAnnotations !== project.scan.annotationPages.length)
+    ) {
+      context.addIssue({
+        code: "custom",
+        path: ["scan", "annotationPages"],
+        message: "Packet annotation-page metadata must be unique and consistent with the source PDF"
       });
     }
   });

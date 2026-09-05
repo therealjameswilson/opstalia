@@ -4,10 +4,27 @@ All notable changes to Opstalia are documented in this file. The project follows
 
 ## [Unreleased]
 
+## [1.3.0] - 2026-09-05
+
+### Added
+
+- Added a batch research-packet workflow to the PDF Packet Lab: select confirmed ranges, audit gaps/overlaps/duplicates, download the official source once, and receive one ZIP with ordered derivative PDFs, JSON and CSV manifests, a README, and SHA-256 checksums.
+- Added editable document date, document type, and identifier fields to packet-register items, plus structured per-export receipts tied to the exact title, page range, source hash, derivative hash, filename, and export time.
+- Added deterministic batch limits of 200 derivatives, 5,000 selected page copies, 200 MiB of derivative output, and the existing 100 MiB source ceiling.
+
+### Security
+
+- Fixed a PDF annotation vulnerability in which omitting a covering annotation from the viewer or derivative could expose underlying text. The viewer now renders inert annotation appearances, embedded text is suppressed on any annotated page, and derivative generation fails closed before producing any file when a selected page contains annotations.
+- Added a one-time browser-local safety migration for pre-1.3 packet registers: legacy text-derived pattern suggestions are removed, earlier review decisions and derivative receipts are invalidated, and researcher-defined records are retained for re-review.
+- Moved source-fingerprint enforcement inside the isolated derivative processor, before PDF parsing and page copying; register edits are locked and rechecked while an export runs.
+- Hardened packet CSV formula-prefix handling and Markdown escaping.
+- Updated the supported toolchain and dependency set, removing the reported high-severity transitive `nanoid` advisory. `pdfjs-dist` remains deliberately pinned to the reviewed 5.4 line pending a separate 6.x migration.
+
 ### Changed
 
 - Made checked-in demonstration projects opt-in instead of automatically presenting their records as browser-saved research.
 - Added a one-time, fixture-only cleanup for demonstration projects persisted by earlier builds; ordinary researcher projects and saved records are left untouched.
+- Kept the compatible Cloudflare search/relay API at backend revision 1.2.0; version 1.3.0 requires no new Worker routes, bindings, secrets, or source-key changes.
 
 ## [1.2.0] - 2026-07-30
 

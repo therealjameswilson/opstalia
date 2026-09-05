@@ -1,6 +1,11 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 import type { PDFDocumentLoadingTask, PDFDocumentProxy } from "pdfjs-dist";
-import type { PdfPacketProject, PdfPacketSegment, PdfPacketSegmentKind } from "../core/types";
+import type {
+  PdfPacketDerivativeReceipt,
+  PdfPacketProject,
+  PdfPacketSegment,
+  PdfPacketSegmentKind
+} from "../core/types";
 import { makeId } from "../core/id";
 import { getSource } from "../data/registry";
 import {
@@ -13,14 +18,21 @@ import { ExternalLink, FieldProvenance, SectionHeading } from "../ui/common";
 import { createPdfSession, MAX_BROWSER_DERIVATIVE_SOURCE_BYTES, packetApiConfigured } from "../pdf/client";
 import { proposePacketSegments, type PacketPageText } from "../pdf/detect-boundaries";
 import {
+  createBatchDerivativesInWorker,
   createDerivativeInWorker,
   downloadBoundedSourcePdf,
-  extractEmbeddedPageText,
+  inspectOfficialPdfPageText,
   MAX_EMBEDDED_TEXT_CHARS_PER_PAGE,
   openOfficialPdf,
   renderOfficialPdfPage
 } from "../pdf/pdf-engine";
+import {
+  buildBatchResearchPacket,
+  createBatchExportPlan,
+  type BatchDerivativePlanItem
+} from "../pdf/batch-export";
 import { pageRangeLabel, validatePageRange } from "../pdf/page-ranges";
+import { migrateLegacyPacketAnnotationSafety } from "../pdf/legacy-packet-migration";
 import {
   packetManifestCsv,
   packetManifestJson,
@@ -87,13 +99,25 @@ function matchSnippet(text: string, query: string): string {
   return `${start ? "…" : ""}${text.slice(start, end)}${end < text.length ? "…" : ""}`;
 }
 
+function segmentMatchesPlan(segment: PdfPacketSegment | undefined, item: BatchDerivativePlanItem): boolean {
+  return Boolean(
+    segment &&
+    segment.title === item.title &&
+    segment.startPage === item.startPage &&
+    segment.endPage === item.endPage &&
+    (segment.reviewStatus === "researcher_confirmed" || segment.reviewStatus === "researcher_corrected")
+  );
+}
+
 function SegmentCard({
   project,
   segment,
   onChange,
   onNavigate,
   onExport,
-  exportBusy
+  exportBusy,
+  selectedForBatch,
+  onBatchSelection
 }: {
   project: PdfPacketProject;
   segment: PdfPacketSegment;
@@ -101,20 +125,43 @@ function SegmentCard({
   onNavigate: (page: number) => void;
   onExport: (segment: PdfPacketSegment) => void;
   exportBusy: boolean;
+  selectedForBatch: boolean;
+  onBatchSelection: (selected: boolean) => void;
 }) {
+  const exportHelpId = useId();
   const rejected = segment.reviewStatus === "researcher_rejected";
   const confirmed = segment.reviewStatus === "researcher_confirmed" || segment.reviewStatus === "researcher_corrected";
   const exportAvailable = Boolean(
-    project.source.byteLength && project.source.byteLength <= MAX_BROWSER_DERIVATIVE_SOURCE_BYTES
+    project.source.byteLength &&
+    project.source.byteLength <= MAX_BROWSER_DERIVATIVE_SOURCE_BYTES &&
+    project.source.sha256
   );
-  const update = (changes: Partial<PdfPacketSegment>) => onChange({
-    ...segment,
-    ...changes,
-    reviewStatus: changes.reviewStatus ?? (segment.detectionMethod === "pattern_match" ? "researcher_corrected" : segment.reviewStatus),
-    updatedAt: new Date().toISOString()
-  });
+  const annotationPages = project.scan.annotationPages ?? [];
+  const annotatedPagesInRange = segment.kind === "page_range" && segment.startPage && segment.endPage
+    ? annotationPages.filter((page) => page >= segment.startPage! && page <= segment.endPage!)
+    : [];
+  const annotationBlocked = annotatedPagesInRange.length > 0;
+  const exportHelp = !confirmed
+    ? "Confirm this page range before exporting it."
+    : !exportAvailable
+      ? "Reopen the official packet to establish a reviewed source fingerprint; PDF sources are limited to 100 MB."
+      : annotationBlocked
+        ? `Export is blocked because annotation-bearing PDF page${annotatedPagesInRange.length === 1 ? "" : "s"} ${annotatedPagesInRange.join(", ")} may cover underlying text.`
+        : "This confirmed range can be exported as a research derivative.";
+  const update = (changes: Partial<PdfPacketSegment>) => {
+    if (exportBusy) return;
+    onChange({
+      ...segment,
+      ...changes,
+      reviewStatus: changes.reviewStatus ?? (segment.detectionMethod === "pattern_match" ? "researcher_corrected" : segment.reviewStatus),
+      updatedAt: new Date().toISOString()
+    });
+  };
   return (
-    <article className={`packet-segment ${rejected ? "packet-segment-rejected" : ""}`}>
+    <article
+      className={`packet-segment ${rejected ? "packet-segment-rejected" : ""}`}
+      aria-label={`Packet item: ${segment.title}`}
+    >
       <header>
         <div>
           <span className={`packet-kind packet-kind-${segment.kind}`}>
@@ -134,7 +181,7 @@ function SegmentCard({
         <input
           value={segment.title}
           maxLength={500}
-          disabled={rejected}
+          disabled={rejected || exportBusy}
           onChange={(event) => update({ title: event.target.value, confidence: 1 })}
         />
       </label>
@@ -147,7 +194,7 @@ function SegmentCard({
               min="1"
               max={project.source.pageCount}
               value={segment.startPage}
-              disabled={rejected}
+              disabled={rejected || exportBusy}
               onChange={(event) => update({ startPage: Number(event.target.value), confidence: 1 })}
             />
           </label>
@@ -158,7 +205,7 @@ function SegmentCard({
               min="1"
               max={project.source.pageCount}
               value={segment.endPage}
-              disabled={rejected}
+              disabled={rejected || exportBusy}
               onChange={(event) => update({ endPage: Number(event.target.value), confidence: 1 })}
             />
           </label>
@@ -177,7 +224,7 @@ function SegmentCard({
               min="1"
               max="10000"
               value={segment.describedExtent ?? ""}
-              disabled={rejected}
+              disabled={rejected || exportBusy}
               onChange={(event) => update({ describedExtent: Number(event.target.value) || undefined, confidence: 1 })}
             />
           </label>
@@ -188,13 +235,45 @@ function SegmentCard({
               min="1"
               max={project.source.pageCount}
               value={segment.evidencePages?.[0] ?? ""}
-              disabled={rejected}
+              disabled={rejected || exportBusy}
               onChange={(event) => update({ evidencePages: Number(event.target.value) ? [Number(event.target.value)] : [], confidence: 1 })}
             />
           </label>
           <p>No content-page range is claimed.</p>
         </div>
       )}
+      <div className="packet-metadata-fields">
+        <label>
+          <span>Document date</span>
+          <input
+            value={segment.date ?? ""}
+            maxLength={80}
+            disabled={rejected || exportBusy}
+            placeholder="YYYY-MM-DD or source wording"
+            onChange={(event) => update({ date: event.target.value || undefined, confidence: 1 })}
+          />
+        </label>
+        <label>
+          <span>Document type</span>
+          <input
+            value={segment.documentType ?? ""}
+            maxLength={200}
+            disabled={rejected || exportBusy}
+            placeholder="Memcon, memorandum, cable…"
+            onChange={(event) => update({ documentType: event.target.value || undefined, confidence: 1 })}
+          />
+        </label>
+        <label>
+          <span>Identifier</span>
+          <input
+            value={segment.identifier ?? ""}
+            maxLength={300}
+            disabled={rejected || exportBusy}
+            placeholder="Document, cable, or control number"
+            onChange={(event) => update({ identifier: event.target.value || undefined, confidence: 1 })}
+          />
+        </label>
+      </div>
       <details>
         <summary>Basis and proposal reasons</summary>
         <p>{segment.releaseStatus.determinationBasis}</p>
@@ -202,11 +281,13 @@ function SegmentCard({
         <p className="fine-print">Public visibility and absence of obvious redactions do not establish release in full.</p>
       </details>
       <div className="packet-segment-actions">
-        {segment.startPage && <button className="button button-secondary" onClick={() => onNavigate(segment.startPage!)}>View start page</button>}
-        {segment.evidencePages?.[0] && <button className="button button-secondary" onClick={() => onNavigate(segment.evidencePages![0])}>View evidence page</button>}
+        {segment.startPage && <button className="button button-secondary" aria-label={`View start page for ${segment.title}`} disabled={exportBusy} onClick={() => onNavigate(segment.startPage!)}>View start page</button>}
+        {segment.evidencePages?.[0] && <button className="button button-secondary" aria-label={`View evidence page for ${segment.title}`} disabled={exportBusy} onClick={() => onNavigate(segment.evidencePages![0])}>View evidence page</button>}
         {!rejected && (
           <button
             className="button button-secondary"
+            aria-label={`Confirm ${segment.title}`}
+            disabled={exportBusy}
             aria-pressed={confirmed}
             onClick={() => update({
               reviewStatus: "researcher_confirmed",
@@ -220,10 +301,13 @@ function SegmentCard({
         {segment.kind === "page_range" && (
           <button
             className="button button-primary"
-            disabled={!confirmed || rejected || !exportAvailable || exportBusy}
-            aria-describedby={!exportAvailable ? "packet-export-limit" : undefined}
+            disabled={!confirmed || rejected || !exportAvailable || exportBusy || annotationBlocked}
+            aria-label={`Export derivative PDF for ${segment.title}`}
+            aria-describedby={exportHelpId}
             title={!exportAvailable
-              ? "Page-range derivative export is limited to source PDFs no larger than 100 MB"
+              ? "Page-range derivative export requires a reviewed source fingerprint and is limited to PDFs no larger than 100 MB"
+              : annotationBlocked
+                ? `Derivative export is blocked because annotation-bearing PDF page${annotatedPagesInRange.length === 1 ? "" : "s"} ${annotatedPagesInRange.join(", ")} may cover underlying text`
               : confirmed ? "Create a research derivative from the confirmed page range" : "Confirm the range before exporting"}
             onClick={() => onExport(segment)}
           >
@@ -232,6 +316,8 @@ function SegmentCard({
         )}
         <button
           className="text-button"
+          aria-label={`${rejected ? "Restore" : "Reject"} ${segment.title}`}
+          disabled={exportBusy}
           aria-pressed={rejected}
           onClick={() => update({
             reviewStatus: rejected ? "proposed" : "researcher_rejected",
@@ -241,6 +327,32 @@ function SegmentCard({
           {rejected ? "Restore proposal" : "Reject proposal"}
         </button>
       </div>
+      {segment.kind === "page_range" && <p id={exportHelpId} className="sr-only">{exportHelp}</p>}
+      {segment.kind === "page_range" && (
+        <label className="packet-batch-select">
+          <input
+            type="checkbox"
+            checked={selectedForBatch}
+            aria-label={`Include ${segment.title} in the batch research packet`}
+            disabled={!confirmed || rejected || exportBusy || annotationBlocked}
+            onChange={(event) => onBatchSelection(event.target.checked)}
+          />
+          <span>Include this confirmed range in the batch research packet</span>
+        </label>
+      )}
+      {annotationBlocked && (
+        <p className="packet-annotation-warning" role="alert">
+          Derivative export blocked: annotation-bearing PDF page{annotatedPagesInRange.length === 1 ? "" : "s"} {annotatedPagesInRange.join(", ")} may visually cover underlying text. Review the unchanged official PDF.
+        </p>
+      )}
+      {segment.derivativeExports?.length ? (
+        <details className="packet-export-receipts">
+          <summary>{segment.derivativeExports.length} derivative export receipt{segment.derivativeExports.length === 1 ? "" : "s"}</summary>
+          <ul>{segment.derivativeExports.slice().reverse().map((receipt) => (
+            <li key={receipt.id}>{receipt.fileName} · pages {receipt.startPage}–{receipt.endPage} · SHA-256 {receipt.derivativeSha256}</li>
+          ))}</ul>
+        </details>
+      ) : null}
     </article>
   );
 }
@@ -257,6 +369,7 @@ export default function PdfPacketPage() {
   const [privateMode, setPrivateMode] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
   const [currentText, setCurrentText] = useState("");
+  const [currentAnnotationCount, setCurrentAnnotationCount] = useState(0);
   const [pageTexts, setPageTexts] = useState<PacketPageText[]>([]);
   const [searchText, setSearchText] = useState("");
   const [loadState, setLoadState] = useState<"idle" | "loading" | "ready" | "error">("idle");
@@ -275,10 +388,12 @@ export default function PdfPacketPage() {
   const [newStart, setNewStart] = useState(1);
   const [newEnd, setNewEnd] = useState(1);
   const [newExtent, setNewExtent] = useState("");
+  const [selectedSegmentIds, setSelectedSegmentIds] = useState<string[]>([]);
+  const [allowBatchWarnings, setAllowBatchWarnings] = useState(false);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const documentRef = useRef<PDFDocumentProxy | undefined>(undefined);
+  const projectRef = useRef<PdfPacketProject | undefined>(undefined);
   const loadingTaskRef = useRef<PDFDocumentLoadingTask | undefined>(undefined);
-  const contentUrlRef = useRef("");
   const openControllerRef = useRef<AbortController | undefined>(undefined);
   const scanControllerRef = useRef<AbortController | undefined>(undefined);
   const exportControllerRef = useRef<AbortController | undefined>(undefined);
@@ -289,6 +404,10 @@ export default function PdfPacketPage() {
   const renderQueueRef = useRef<Promise<void>>(Promise.resolve());
 
   const refreshSaved = async () => setSavedProjects(await listPdfPacketProjects());
+
+  useEffect(() => {
+    projectRef.current = project;
+  }, [project]);
 
   useEffect(() => {
     void refreshSaved();
@@ -313,6 +432,7 @@ export default function PdfPacketPage() {
     const controller = new AbortController();
     renderControllerRef.current = controller;
     setCurrentText("");
+    setCurrentAnnotationCount(0);
     setPageAnnouncement(`Loading PDF page ${pageNumber} of ${project.source.pageCount}.`);
     renderQueueRef.current = renderQueueRef.current
       .catch(() => undefined)
@@ -325,11 +445,16 @@ export default function PdfPacketPage() {
         ) return;
         await renderOfficialPdfPage(activeDocument, pageNumber, canvas, renderScale, controller.signal);
         if (controller.signal.aborted || currentPageRef.current !== pageNumber) return;
-        const text = await extractEmbeddedPageText(activeDocument, pageNumber);
+        const inspection = await inspectOfficialPdfPageText(activeDocument, pageNumber);
         if (controller.signal.aborted || currentPageRef.current !== pageNumber || openGenerationRef.current !== sessionGeneration) return;
-        setCurrentText(text);
+        setCurrentText(inspection.text);
+        setCurrentAnnotationCount(inspection.annotationCount);
         setPageAnnouncement(
-          `PDF page ${pageNumber} of ${project.source.pageCount} rendered. ${text ? "Embedded text is available below." : "No embedded text was available; review the page image manually."}`
+          `PDF page ${pageNumber} of ${project.source.pageCount} rendered. ${inspection.textSuppressedForAnnotations
+            ? `${inspection.annotationCount} annotation${inspection.annotationCount === 1 ? " was" : "s were"} rendered; embedded-text display is suppressed as a safety precaution.`
+            : inspection.text
+              ? "Embedded text is available below."
+              : "No embedded text was available; review the page image manually."}`
         );
       })
       .catch((cause) => {
@@ -346,6 +471,40 @@ export default function PdfPacketPage() {
     return pageTexts.filter((page) => page.text.toLocaleLowerCase().includes(query)).slice(0, 200);
   }, [pageTexts, searchText]);
 
+  const batchPlan = useMemo(
+    () => project ? createBatchExportPlan(project, { selectedSegmentIds }) : undefined,
+    [project, selectedSegmentIds]
+  );
+  const batchWarnings = batchPlan?.issues.filter((issue) =>
+    issue.code === "overlap" || issue.code === "exact_duplicate"
+  ) ?? [];
+  const batchErrors = batchPlan?.issues.filter((issue) => issue.severity === "error") ?? [];
+  const visibleBatchIssues = batchPlan
+    ? [
+        ...batchErrors,
+        ...batchPlan.issues
+          .filter((issue) => issue.severity !== "error")
+          .slice(0, Math.max(0, 40 - batchErrors.length))
+      ]
+    : [];
+  const knownAnnotatedBatchPages = useMemo(() => {
+    if (!batchPlan || !project?.scan.annotationPages?.length) return [];
+    return project.scan.annotationPages.filter((page) =>
+      batchPlan.derivativeItems.some((item) => page >= item.startPage && page <= item.endPage)
+    );
+  }, [batchPlan, project]);
+  const batchExportHelp = isExporting
+    ? "A batch export is already in progress."
+    : !acknowledged
+      ? "Acknowledge the public, unclassified-source notice before exporting."
+      : !batchPlan?.canExport
+        ? "Select at least one valid, confirmed page range and resolve every preflight error."
+        : knownAnnotatedBatchPages.length
+          ? "Remove annotation-bearing pages from the batch before exporting."
+          : batchWarnings.length > 0 && !allowBatchWarnings
+            ? "Review and acknowledge the overlap or duplicate-range warnings before exporting."
+            : "The selected batch is ready for a fresh source-fingerprint check and local export.";
+
   const fillDemo = () => {
     setName(DEMO.title);
     setNaid(DEMO.naid);
@@ -355,6 +514,10 @@ export default function PdfPacketPage() {
   };
 
   const openPacket = async (preset?: PdfPacketProject) => {
+    if (exportingRef.current) {
+      setError("Finish or cancel the current derivative export before opening another packet.");
+      return;
+    }
     const effectiveName = preset?.name ?? name.trim();
     const effectiveNaid = preset?.source.naraNaid ?? naid.trim();
     const effectiveRecordUrl = preset?.source.officialRecordUrl ?? recordUrl.trim();
@@ -386,13 +549,15 @@ export default function PdfPacketPage() {
     setStatus("Validating the official packet, then transferring one bounded public copy into this browser…");
     setProject(undefined);
     documentRef.current = undefined;
-    contentUrlRef.current = "";
     renderControllerRef.current?.abort();
     scanControllerRef.current?.abort();
     exportControllerRef.current?.abort();
     exportingRef.current = false;
     setIsScanning(false);
     setIsExporting(false);
+    setSelectedSegmentIds([]);
+    setAllowBatchWarnings(false);
+    setCurrentAnnotationCount(0);
     setTransferProgress(undefined);
     try {
       await loadingTaskRef.current?.destroy();
@@ -425,21 +590,24 @@ export default function PdfPacketPage() {
       }
       documentRef.current = opened.document;
       loadingTaskRef.current = opened.loadingTask;
-      contentUrlRef.current = session.contentUrl;
       const now = new Date().toISOString();
+      const migratedPreset = preset
+        ? migrateLegacyPacketAnnotationSafety(preset, now)
+        : undefined;
+      const safePreset = migratedPreset?.project;
       const sourceUnchanged = Boolean(
         preset &&
         preset.source.byteLength === opened.byteLength &&
         preset.source.sha256 &&
         preset.source.sha256 === opened.sha256
       );
-      const next: PdfPacketProject = preset
+      const next: PdfPacketProject = safePreset
         ? {
-            ...preset,
+            ...safePreset,
             privateMode,
             updatedAt: now,
             source: {
-              ...preset.source,
+              ...safePreset.source,
               sha256: opened.sha256,
               pageCount: opened.document.numPages,
               byteLength: opened.byteLength,
@@ -447,13 +615,17 @@ export default function PdfPacketPage() {
               lastModified: session.lastModified,
               inspectedAt: now
             },
-            segments: sourceUnchanged ? preset.segments : preset.segments.map((segment) => ({
+            segments: sourceUnchanged ? safePreset.segments : safePreset.segments.map((segment) => ({
               ...segment,
               notes: removeStaleDerivativeHash(segment.notes),
+              derivativeExports: undefined,
               reviewStatus: segment.reviewStatus === "researcher_rejected" ? "researcher_rejected" as const : "proposed" as const,
               reasons: [...new Set([...segment.reasons, "The newly computed source hash did not match a saved hash; re-review required"])],
               updatedAt: now
-            }))
+            })),
+            scan: sourceUnchanged
+              ? safePreset.scan
+              : { pagesScanned: 0, pagesWithText: 0, pagesWithAnnotations: 0, annotationPages: [] }
           }
         : {
             id: makeId("pdf-packet"),
@@ -475,8 +647,9 @@ export default function PdfPacketPage() {
               inspectedAt: now
             },
             segments: [],
-            scan: { pagesScanned: 0, pagesWithText: 0 }
+            scan: { pagesScanned: 0, pagesWithText: 0, pagesWithAnnotations: 0, annotationPages: [] }
           };
+      projectRef.current = next;
       setProject(next);
       setName(effectiveName);
       setNaid(effectiveNaid);
@@ -487,10 +660,13 @@ export default function PdfPacketPage() {
       setNewEnd(1);
       setPageTexts([]);
       setScanProgress(0);
+      // Batch scope is always explicit for the current open session. Reopening
+      // or confirming a range must never silently broaden an export selection.
+      setSelectedSegmentIds([]);
       setLoadState("ready");
       setTransferProgress(undefined);
       setStatus(
-        `${sourceUnchanged || !preset ? "Ready" : "Ready; saved range decisions require re-review because the newly computed source hash did not match a saved hash"}: ${opened.document.numPages} pages, ${bytesLabel(opened.byteLength)}. The original remains NARA-hosted; one bounded public copy transited the relay and is processed transiently in this browser.`
+        `${sourceUnchanged || !preset ? "Ready" : "Ready; saved range decisions require re-review because the newly computed source hash did not match a saved hash"}: ${opened.document.numPages} pages, ${bytesLabel(opened.byteLength)}. The original remains NARA-hosted; one bounded public copy transited the relay and is processed transiently in this browser.${migratedPreset?.migrated ? ` Pre-1.3 review state was reset for annotation safety, and ${migratedPreset.removedPatternSuggestions} legacy pattern suggestion${migratedPreset.removedPatternSuggestions === 1 ? " was" : "s were"} removed; run a new scan and review the retained researcher-defined items.` : ""}`
       );
     } catch (cause) {
       if (generation !== openGenerationRef.current) return;
@@ -507,7 +683,9 @@ export default function PdfPacketPage() {
   const updateProject = (update: PdfPacketProject | ((current: PdfPacketProject) => PdfPacketProject)) => {
     setProject((current) => {
       if (!current) return current;
-      return typeof update === "function" ? update(current) : update;
+      const next = typeof update === "function" ? update(current) : update;
+      projectRef.current = next;
+      return next;
     });
   };
 
@@ -521,19 +699,21 @@ export default function PdfPacketPage() {
     setError("");
     setStatus("Scanning the PDF’s embedded text layer. No text is sent to an OCR or AI service.");
     const pages: PacketPageText[] = [];
+    const annotationPages: number[] = [];
     let totalTextCharacters = 0;
     let limitedReason: string | undefined;
     try {
       const pageLimit = Math.min(project.source.pageCount, MAX_SCAN_PAGES);
       for (let pageNumber = 1; pageNumber <= pageLimit; pageNumber += 1) {
         if (controller.signal.aborted) throw new DOMException("Scan cancelled", "AbortError");
-        const text = await extractEmbeddedPageText(documentRef.current, pageNumber);
-        if (totalTextCharacters + text.length > MAX_SCAN_TEXT_CHARS) {
+        const inspection = await inspectOfficialPdfPageText(documentRef.current, pageNumber);
+        if (inspection.textSuppressedForAnnotations) annotationPages.push(pageNumber);
+        if (totalTextCharacters + inspection.text.length > MAX_SCAN_TEXT_CHARS) {
           limitedReason = `The in-memory scan stopped before PDF page ${pageNumber} at the ${Math.floor(MAX_SCAN_TEXT_CHARS / 1024 / 1024)} million-character safety budget.`;
           break;
         }
-        pages.push({ pageNumber, text });
-        totalTextCharacters += text.length;
+        pages.push({ pageNumber, text: inspection.text });
+        totalTextCharacters += inspection.text.length;
         setScanProgress(pageNumber);
         if (pageNumber % 4 === 0) await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
       }
@@ -543,6 +723,15 @@ export default function PdfPacketPage() {
       const proposals = proposePacketSegments(pages, pages.length);
       const withText = pages.filter((page) => page.text.length > 0).length;
       setPageTexts(pages);
+      if (annotationPages.length) {
+        setSelectedSegmentIds((current) => current.filter((id) => {
+          const segment = project.segments.find((item) => item.id === id);
+          return !segment?.startPage || !segment.endPage || !annotationPages.some(
+            (page) => page >= segment.startPage! && page <= segment.endPage!
+          );
+        }));
+        setAllowBatchWarnings(false);
+      }
       updateProject((current) => ({
         ...current,
         updatedAt: new Date().toISOString(),
@@ -557,12 +746,14 @@ export default function PdfPacketPage() {
         scan: {
           pagesScanned: pages.length,
           pagesWithText: withText,
+          pagesWithAnnotations: annotationPages.length,
+          annotationPages,
           completedAt: limitedReason ? undefined : new Date().toISOString(),
           limitedReason
         }
       }));
       setStatus(
-        `Scanned ${pages.length} pages; ${withText} contained embedded text. Added ${proposals.length} editable boundary suggestion${proposals.length === 1 ? "" : "s"}.${limitedReason ? ` ${limitedReason}` : ""}`
+        `Scanned ${pages.length} pages; ${withText} contained safely displayable embedded text. Embedded text was suppressed on ${annotationPages.length} annotation-bearing page${annotationPages.length === 1 ? "" : "s"}. Added ${proposals.length} editable boundary suggestion${proposals.length === 1 ? "" : "s"}.${limitedReason ? ` ${limitedReason}` : ""}`
       );
     } catch (cause) {
       if (cause instanceof DOMException && cause.name === "AbortError") setStatus("Text scan cancelled.");
@@ -573,6 +764,7 @@ export default function PdfPacketPage() {
   };
 
   const addSegment = () => {
+    if (isExporting) return;
     if (!project || !newTitle.trim()) {
       setError("Give the page range or described item a title.");
       return;
@@ -607,11 +799,53 @@ export default function PdfPacketPage() {
     setError("");
   };
 
+  const downloadFreshSourceForExport = async (
+    snapshot: PdfPacketProject,
+    controller: AbortController
+  ): Promise<ArrayBuffer> => {
+    if (!acknowledged) throw new Error("Reconfirm the public, unclassified-source notice before exporting a derivative.");
+    if (
+      !snapshot.source.naraNaid ||
+      !snapshot.source.officialRecordUrl ||
+      !snapshot.source.byteLength ||
+      !snapshot.source.sha256
+    ) {
+      throw new Error("Reopen the official packet to establish a current source length and SHA-256 before exporting.");
+    }
+    const session = await createPdfSession({
+      sourceId: SOURCE_ID,
+      naraNaid: snapshot.source.naraNaid,
+      officialRecordUrl: snapshot.source.officialRecordUrl,
+      officialPdfUrl: snapshot.source.officialPdfUrl,
+      acknowledgedPublicUnclassified: true
+    }, controller.signal);
+    const expectedLength = session.byteLength ?? snapshot.source.byteLength;
+    return downloadBoundedSourcePdf(
+      session.contentUrl,
+      expectedLength,
+      (loaded) => setExportProgress(loaded),
+      controller.signal
+    );
+  };
+
   const exportDerivative = async (segment: PdfPacketSegment) => {
     if (!project || segment.kind !== "page_range" || !segment.startPage || !segment.endPage || exportingRef.current) return;
     const range = validatePageRange(segment.startPage, segment.endPage, project.source.pageCount);
     if (!range.valid) {
       setError(range.reason);
+      return;
+    }
+    const plan = createBatchExportPlan(project, { selectedSegmentIds: [segment.id] });
+    const planItem = plan.derivativeItems[0];
+    if (!plan.canExport || !planItem || !project.source.sha256) {
+      setError("Confirm this valid page range and reopen the official packet before exporting it.");
+      return;
+    }
+    const annotatedPages = (project.scan.annotationPages ?? []).filter(
+      (page) => page >= planItem.startPage && page <= planItem.endPage
+    );
+    if (annotatedPages.length) {
+      setError(`Derivative export is blocked because annotation-bearing PDF page${annotatedPages.length === 1 ? "" : "s"} ${annotatedPages.join(", ")} may cover underlying text.`);
       return;
     }
     setError("");
@@ -620,49 +854,165 @@ export default function PdfPacketPage() {
     setIsExporting(true);
     const controller = new AbortController();
     exportControllerRef.current = controller;
-    const projectId = project.id;
+    const snapshot = project;
+    const expectedSourceSha256 = snapshot.source.sha256!;
     const sessionGeneration = openGenerationRef.current;
-    setStatus("Downloading a second complete bounded source copy, then extracting the confirmed page range in an isolated browser worker…");
+    setStatus("Creating a fresh bounded relay session, downloading the official source once, checking its fingerprint, and extracting the confirmed range in an isolated browser worker…");
     try {
-      const sourceBytes = await downloadBoundedSourcePdf(
-        contentUrlRef.current,
-        project.source.byteLength ?? Number.POSITIVE_INFINITY,
-        (loaded) => setExportProgress(loaded),
-        controller.signal
-      );
+      const sourceBytes = await downloadFreshSourceForExport(snapshot, controller);
       const result = await createDerivativeInWorker({
         sourceBytes,
-        startPage: segment.startPage,
-        endPage: segment.endPage,
-        title: segment.title,
-        provenance: `Researcher-defined page-range derivative, PDF pages ${segment.startPage}-${segment.endPage}. Official PDF: ${project.source.officialPdfUrl}. Researcher-supplied Catalog association: NAID ${project.source.naraNaid}; Opstalia did not verify that association.`,
+        expectedSourceSha256,
+        segmentId: planItem.segmentId,
+        startPage: planItem.startPage,
+        endPage: planItem.endPage,
+        title: planItem.title,
+        provenance: `Researcher-defined page-range derivative, PDF pages ${planItem.startPage}-${planItem.endPage}. Official PDF: ${snapshot.source.officialPdfUrl}. Researcher-supplied Catalog association: NAID ${snapshot.source.naraNaid}; Opstalia did not verify that association.`,
         signal: controller.signal
       });
       if (sessionGeneration !== openGenerationRef.current) return;
-      if (project.source.sha256 && result.sourceSha256 !== project.source.sha256) {
-        throw new Error("The official source hash changed after this packet was opened. Reopen and review the packet before exporting a derivative.");
+      const current = projectRef.current;
+      if (!current || current.id !== snapshot.id || !segmentMatchesPlan(current.segments.find((item) => item.id === planItem.segmentId), planItem)) {
+        throw new Error("The reviewed range changed during export, so Opstalia discarded the derivative receipt. Export it again from the current register.");
       }
-      downloadFile(safeFilename(segment.title, "pdf"), result.output, "application/pdf");
-      setProject((current) => {
-        if (!current || current.id !== projectId) return current;
-        const updatedAt = new Date().toISOString();
-        return {
-          ...current,
-          updatedAt,
-          source: { ...current.source, sha256: result.sourceSha256 },
-          segments: current.segments.map((item) => item.id === segment.id
-            ? {
-                ...item,
-                notes: `${item.notes ? `${item.notes}\n` : ""}Latest derivative SHA-256: ${result.derivativeSha256} (source SHA-256: ${result.sourceSha256})`,
-                updatedAt
-              }
-            : item)
-        };
-      });
-      setStatus(`Derivative downloaded. Source SHA-256 ${result.sourceSha256}; derivative SHA-256 ${result.derivativeSha256}.`);
+      downloadFile(planItem.fileName, result.output, "application/pdf");
+      const exportedAt = new Date().toISOString();
+      const receipt: PdfPacketDerivativeReceipt = {
+        id: makeId("packet-derivative"),
+        exportedAt,
+        fileName: planItem.fileName,
+        title: planItem.title,
+        startPage: planItem.startPage,
+        endPage: planItem.endPage,
+        pageCount: planItem.pageCount,
+        sourceSha256: result.sourceSha256,
+        derivativeSha256: result.derivativeSha256
+      };
+      updateProject((currentProject) => ({
+        ...currentProject,
+        updatedAt: exportedAt,
+        segments: currentProject.segments.map((item) => item.id === planItem.segmentId
+          ? { ...item, derivativeExports: [...(item.derivativeExports ?? []), receipt].slice(-100), updatedAt: exportedAt }
+          : item)
+      }));
+      setStatus(`Derivative downloaded from one fresh source transfer. Source SHA-256 ${result.sourceSha256}; derivative SHA-256 ${result.derivativeSha256}.`);
     } catch (cause) {
       if (sessionGeneration !== openGenerationRef.current) return;
       setError(cause instanceof Error ? cause.message : "Unable to export the research derivative.");
+      setStatus("");
+    } finally {
+      if (exportControllerRef.current === controller) {
+        exportingRef.current = false;
+        setIsExporting(false);
+        exportControllerRef.current = undefined;
+      }
+    }
+  };
+
+  const exportBatch = async () => {
+    if (!project || !batchPlan || exportingRef.current) return;
+    if (!batchPlan.canExport || !project.source.sha256) {
+      setError("Select at least one valid, confirmed page range and reopen the official packet before exporting a batch.");
+      return;
+    }
+    if (knownAnnotatedBatchPages.length) {
+      setError(`Batch export is blocked because annotation-bearing PDF page${knownAnnotatedBatchPages.length === 1 ? "" : "s"} ${knownAnnotatedBatchPages.join(", ")} may cover underlying text.`);
+      return;
+    }
+    if (batchWarnings.length && !allowBatchWarnings) {
+      setError("Review and acknowledge the overlap or duplicate-range warnings before exporting this batch.");
+      return;
+    }
+    setError("");
+    setExportProgress(0);
+    exportingRef.current = true;
+    setIsExporting(true);
+    const controller = new AbortController();
+    exportControllerRef.current = controller;
+    const snapshot = project;
+    const expectedSourceSha256 = snapshot.source.sha256!;
+    const selectedSnapshot = [...selectedSegmentIds];
+    const planSnapshot = createBatchExportPlan(snapshot, { selectedSegmentIds: selectedSnapshot });
+    const sessionGeneration = openGenerationRef.current;
+    setStatus(`Creating one fresh bounded source transfer for ${planSnapshot.derivativeItems.length} confirmed derivative${planSnapshot.derivativeItems.length === 1 ? "" : "s"}, then building a checksummed ZIP locally…`);
+    try {
+      const sourceBytes = await downloadFreshSourceForExport(snapshot, controller);
+      const result = await createBatchDerivativesInWorker({
+        sourceBytes,
+        expectedSourceSha256,
+        ranges: planSnapshot.derivativeItems.map((item) => ({
+          segmentId: item.segmentId,
+          startPage: item.startPage,
+          endPage: item.endPage,
+          title: item.title,
+          provenance: `Researcher-defined page-range derivative, PDF pages ${item.startPage}-${item.endPage}. Official PDF: ${snapshot.source.officialPdfUrl}. Researcher-supplied Catalog association: NAID ${snapshot.source.naraNaid}; Opstalia did not verify that association.`
+        })),
+        signal: controller.signal
+      });
+      if (sessionGeneration !== openGenerationRef.current) return;
+      const current = projectRef.current;
+      if (
+        !current ||
+        current.id !== snapshot.id ||
+        planSnapshot.derivativeItems.some((item) => !segmentMatchesPlan(current.segments.find((segment) => segment.id === item.segmentId), item))
+      ) {
+        throw new Error("The reviewed register changed during export, so Opstalia discarded the batch. Export it again from the current register.");
+      }
+      const packaged = await buildBatchResearchPacket(
+        snapshot,
+        result.outputs.map((item) => ({
+          segmentId: item.segmentId,
+          pdfBytes: new Uint8Array(item.output),
+          expectedSha256: item.derivativeSha256
+        })),
+        { selectedSegmentIds: selectedSnapshot }
+      );
+      if (controller.signal.aborted) throw new DOMException("Batch export cancelled", "AbortError");
+      const readyProject = projectRef.current;
+      if (
+        sessionGeneration !== openGenerationRef.current ||
+        !readyProject ||
+        readyProject.id !== snapshot.id ||
+        readyProject.source.sha256 !== snapshot.source.sha256 ||
+        planSnapshot.derivativeItems.some((item) =>
+          !segmentMatchesPlan(readyProject.segments.find((segment) => segment.id === item.segmentId), item)
+        )
+      ) {
+        throw new Error("The packet or reviewed register changed while the ZIP was being built, so Opstalia discarded it. Export again from the current register.");
+      }
+      const zipName = safeFilename(`${snapshot.name}-research-packet`, "zip");
+      downloadFile(zipName, Uint8Array.from(packaged.zipBytes).buffer, "application/zip");
+      const exportedAt = new Date().toISOString();
+      const batchId = makeId("packet-batch");
+      const receipts = new Map(planSnapshot.derivativeItems.map((item) => {
+        const output = result.outputs.find((candidate) => candidate.segmentId === item.segmentId)!;
+        return [item.segmentId, {
+          id: makeId("packet-derivative"),
+          exportedAt,
+          batchId,
+          fileName: item.fileName,
+          title: item.title,
+          startPage: item.startPage,
+          endPage: item.endPage,
+          pageCount: item.pageCount,
+          sourceSha256: result.sourceSha256,
+          derivativeSha256: output.derivativeSha256
+        } satisfies PdfPacketDerivativeReceipt];
+      }));
+      updateProject((currentProject) => ({
+        ...currentProject,
+        updatedAt: exportedAt,
+        segments: currentProject.segments.map((item) => {
+          const receipt = receipts.get(item.id);
+          return receipt
+            ? { ...item, derivativeExports: [...(item.derivativeExports ?? []), receipt].slice(-100), updatedAt: exportedAt }
+            : item;
+        })
+      }));
+      setStatus(`Batch research packet downloaded: ${planSnapshot.derivativeItems.length} derivative PDF${planSnapshot.derivativeItems.length === 1 ? "" : "s"}, manifests, and SHA-256 checksums from one fresh official-source transfer.`);
+    } catch (cause) {
+      if (sessionGeneration !== openGenerationRef.current) return;
+      setError(cause instanceof Error ? cause.message : "Unable to export the batch research packet.");
       setStatus("");
     } finally {
       if (exportControllerRef.current === controller) {
@@ -699,7 +1049,7 @@ export default function PdfPacketPage() {
         <div>
           <h2 id="packet-security-title">Public, unclassified official copies only</h2>
           <p><strong>Do not enter or process classified information, CUI, PII, or other restricted material.</strong> The public Packet Lab accepts only a direct NARA Catalog presidential-library PDF plus a canonical NARA record locator supplied by the researcher. It is not connected to Opstalia-c or any closed network.</p>
-          <p>PDF text and pages are processed in this browser. Admission reads only a short signature prefix. Opening then streams one complete approved official copy, up to 100 MB, without server-side parsing, caching, or storage. Creating a derivative may stream the complete source a second time.</p>
+          <p>PDF text and pages are processed in this browser. Admission reads only a short signature prefix. Opening then streams one complete approved official copy, up to 100 MB, without server-side parsing, caching, or storage. A later single or batch derivative operation streams one fresh complete copy.</p>
           <p className="fine-print">Opstalia validates the official URL forms and numeric NAID but does not establish that the supplied Catalog record lists the supplied PDF. Confirm that association on the official record page.</p>
         </div>
       </section>
@@ -716,7 +1066,7 @@ export default function PdfPacketPage() {
               <strong>{saved.name}</strong>
               <small>NAID {saved.source.naraNaid} · {saved.source.pageCount} pages · {saved.segments.length} items</small>
               <div>
-                <button className="text-button" onClick={() => void openPacket(saved)}>Reopen</button>
+                <button className="text-button" disabled={isExporting} onClick={() => void openPacket(saved)}>Reopen</button>
                 <button
                   className="text-button"
                   onClick={async () => {
@@ -782,7 +1132,7 @@ export default function PdfPacketPage() {
           </label>
           <button
             className="button button-primary"
-            disabled={!packetApiConfigured() || loadState === "loading" || !acknowledged}
+            disabled={!packetApiConfigured() || loadState === "loading" || isExporting || !acknowledged}
             onClick={() => void openPacket()}
           >
             {loadState === "loading" ? "Opening official packet…" : "Open PDF Packet Lab"}
@@ -857,9 +1207,15 @@ export default function PdfPacketPage() {
               </div>
               <p id="packet-page-description" className="fine-print" role="status" aria-live="polite">{pageAnnouncement}</p>
               <details className="packet-text-layer">
-                <summary>Embedded PDF text for page {currentPage}</summary>
-                <p className="fine-print">This is the PDF text layer, not new OCR. Empty or damaged text requires manual page review.</p>
-                <pre>{currentText || "No embedded text was available on this page."}</pre>
+                <summary>Safety-checked embedded PDF text for page {currentPage}</summary>
+                {currentAnnotationCount > 0 ? (
+                  <p className="packet-annotation-warning" role="alert">
+                    Embedded text is suppressed because this page contains {currentAnnotationCount} annotation{currentAnnotationCount === 1 ? "" : "s"}. An annotation may visually cover text that remains in the PDF data. Use the rendered page and unchanged official PDF for review.
+                  </p>
+                ) : (
+                  <p className="fine-print">This is the PDF text layer, not new OCR. Empty or damaged text requires manual page review.</p>
+                )}
+                <pre>{currentText || (currentAnnotationCount ? "Text suppressed for annotation safety." : "No embedded text was available on this page.")}</pre>
               </details>
             </section>
 
@@ -869,7 +1225,7 @@ export default function PdfPacketPage() {
                 <h2>Find likely boundaries</h2>
                 <p>Look for memcon, telcon, memorandum, subject, participant, date, end-marker, and withdrawal-sheet patterns. Every result is an editable suggestion.</p>
                 <p className="fine-print">Per-page text is limited to {MAX_EMBEDDED_TEXT_CHARS_PER_PAGE.toLocaleString()} characters; a scan stops at {MAX_SCAN_PAGES.toLocaleString()} pages or the in-memory text budget.</p>
-                <button className="button button-secondary" onClick={() => void scanText()} disabled={isScanning}>{isScanning ? "Scanning embedded text…" : pageTexts.length ? "Rescan embedded text" : "Scan embedded text"}</button>
+                <button className="button button-secondary" onClick={() => void scanText()} disabled={isScanning || isExporting}>{isScanning ? "Scanning embedded text…" : pageTexts.length ? "Rescan embedded text" : "Scan embedded text"}</button>
                 {(isScanning || scanProgress > 0) && (
                   <progress value={scanProgress} max={project.source.pageCount} aria-label="PDF text scan progress">{scanProgress}/{project.source.pageCount}</progress>
                 )}
@@ -920,7 +1276,7 @@ export default function PdfPacketPage() {
                     <button className="text-button" onClick={() => setNewEnd(currentPage)}>Use page {currentPage} as end</button>
                   </>}
                 </div>
-                <button className="button button-primary" onClick={addSegment}>Add reviewed item</button>
+                <button className="button button-primary" disabled={isExporting} onClick={addSegment}>Add reviewed item</button>
               </section>
             </aside>
           </div>
@@ -951,21 +1307,162 @@ export default function PdfPacketPage() {
             </header>
             <div className="packet-register-warning">
               <strong>Research derivative policy</strong>
-              <p>A range is a researcher-created locator within the unchanged official packet. It is not a new official release. Creating a derivative transfers the complete source again and requires its SHA-256 to match the copy opened for review. For safety, derivative PDFs omit active page actions and annotations and are not byte-identical to the source. Described-only items never receive a derivative-PDF button.</p>
+              <p>A range is a researcher-created locator within the unchanged official packet. It is not a new official release. Each export obtains a fresh relay session and requires the source SHA-256 to match the copy opened for review. Annotation-bearing pages are refused because removing a covering annotation could reveal underlying text; annotation-free derivatives omit active page actions and are not byte-identical to the source. Described-only items never receive a derivative-PDF button.</p>
             </div>
+            {batchPlan && (
+              <section className="packet-batch-panel" aria-labelledby="packet-batch-title">
+                <header>
+                  <div>
+                    <p className="eyebrow">Collection export</p>
+                    <h3 id="packet-batch-title">Batch research packet</h3>
+                    <p>Download the official source once, split the selected confirmed ranges locally, and receive one ZIP with numbered PDFs, JSON and CSV manifests, a README, and SHA-256 checksums.</p>
+                  </div>
+                  <div className="packet-batch-actions">
+                    <button
+                      className="text-button"
+                      disabled={isExporting}
+                      onClick={() => {
+                        const annotationPages = project.scan.annotationPages ?? [];
+                        const exportableIds = project.segments
+                          .filter((segment) => {
+                            if (segment.kind !== "page_range" || !segment.startPage || !segment.endPage) return false;
+                            const confirmed = segment.reviewStatus === "researcher_confirmed" || segment.reviewStatus === "researcher_corrected";
+                            const range = validatePageRange(segment.startPage, segment.endPage, project.source.pageCount);
+                            return confirmed && range.valid && !annotationPages.some((page) => page >= segment.startPage! && page <= segment.endPage!);
+                          })
+                          .map((segment) => segment.id);
+                        setSelectedSegmentIds(exportableIds);
+                        setAllowBatchWarnings(false);
+                        setStatus(`${exportableIds.length} valid confirmed range${exportableIds.length === 1 ? "" : "s"} explicitly selected for this batch.`);
+                      }}
+                    >Select exportable confirmed ranges</button>
+                    <button
+                      className="text-button"
+                      disabled={isExporting || !selectedSegmentIds.length}
+                      onClick={() => {
+                        setSelectedSegmentIds([]);
+                        setAllowBatchWarnings(false);
+                        setStatus("Batch export selection cleared.");
+                      }}
+                    >Clear selection</button>
+                  </div>
+                </header>
+                <dl className="packet-batch-summary">
+                  <div><dt>Selected derivatives</dt><dd>{batchPlan.derivativeItems.length}</dd></div>
+                  <div><dt>Selected page copies</dt><dd>{batchPlan.totalSelectedPages.toLocaleString()}</dd></div>
+                  <div><dt>Unique pages covered</dt><dd>{batchPlan.uniqueCoveredPages.toLocaleString()}</dd></div>
+                  <div><dt>Uncovered source ranges</dt><dd>{batchPlan.uncoveredRanges.length.toLocaleString()}</dd></div>
+                  <div><dt>Described-only entries</dt><dd>{batchPlan.manifestOnlyItems.length.toLocaleString()}</dd></div>
+                </dl>
+                <p className="sr-only" role="status" aria-live="polite">
+                  {batchPlan.derivativeItems.length} range{batchPlan.derivativeItems.length === 1 ? "" : "s"} selected for batch export.
+                </p>
+                <details className="packet-batch-file-plan">
+                  <summary>Ordered export set: {batchPlan.derivativeItems.length} derivative PDF{batchPlan.derivativeItems.length === 1 ? "" : "s"}</summary>
+                  {batchPlan.derivativeItems.length ? (
+                    <ol>
+                      {batchPlan.derivativeItems.map((item) => (
+                        <li key={item.segmentId}>
+                          <strong>{item.title}</strong> · PDF pages {item.startPage}–{item.endPage}<br />
+                          <code>{item.fileName}</code>
+                        </li>
+                      ))}
+                    </ol>
+                  ) : <p>No page range is selected. Use the item checkboxes or the explicit select-all action.</p>}
+                </details>
+                {batchPlan.excludedPageRanges.length > 0 && (
+                  <details className="packet-batch-file-plan">
+                    <summary>Excluded page-range records: {batchPlan.excludedPageRanges.length}</summary>
+                    <ul>
+                      {batchPlan.excludedPageRanges.map((item) => (
+                        <li key={item.segmentId}><strong>{item.title}</strong> · {item.reason}</li>
+                      ))}
+                    </ul>
+                  </details>
+                )}
+                {batchPlan.issues.length ? (
+                  <details>
+                    <summary>Preflight audit: {batchErrors.length} errors, {batchWarnings.length} overlap/duplicate warnings, {batchPlan.uncoveredRanges.length} gap notices</summary>
+                    <ul className="packet-preflight-issues">
+                      {visibleBatchIssues.map((issue, index) => (
+                        <li key={`${issue.code}-${issue.startPage ?? "none"}-${index}`} data-severity={issue.severity}>
+                          <strong>{issue.severity}:</strong> {issue.message}
+                        </li>
+                      ))}
+                    </ul>
+                    {batchPlan.issues.length > visibleBatchIssues.length && <p className="fine-print">Showing every blocking error plus {Math.max(0, visibleBatchIssues.length - batchErrors.length)} of {batchPlan.issues.length - batchErrors.length} non-blocking findings.</p>}
+                  </details>
+                ) : <p className="success-message">Preflight found no invalid, duplicate, overlapping, or uncovered ranges.</p>}
+                {knownAnnotatedBatchPages.length > 0 && (
+                  <p className="packet-annotation-warning" role="alert">
+                    Batch blocked: selected PDF page{knownAnnotatedBatchPages.length === 1 ? "" : "s"} {knownAnnotatedBatchPages.join(", ")} contain annotations. The isolated processor also checks every selected page before creating any derivative.
+                  </p>
+                )}
+                {batchWarnings.length > 0 && (
+                  <label className="packet-batch-confirm">
+                    <input
+                      type="checkbox"
+                      checked={allowBatchWarnings}
+                      disabled={isExporting}
+                      onChange={(event) => setAllowBatchWarnings(event.target.checked)}
+                    />
+                    <span>I reviewed the {batchWarnings.length} overlap or duplicate-range warning{batchWarnings.length === 1 ? "" : "s"} and intend to include these page copies.</span>
+                  </label>
+                )}
+                <div className="packet-batch-actions">
+                  <button
+                    className="button button-primary"
+                    aria-describedby="packet-batch-export-help"
+                    disabled={
+                      isExporting ||
+                      !acknowledged ||
+                      !batchPlan.canExport ||
+                      knownAnnotatedBatchPages.length > 0 ||
+                      (batchWarnings.length > 0 && !allowBatchWarnings)
+                    }
+                    onClick={() => void exportBatch()}
+                  >
+                    {isExporting ? "Building research packet…" : `Export ${batchPlan.derivativeItems.length} selected range${batchPlan.derivativeItems.length === 1 ? "" : "s"} as ZIP`}
+                  </button>
+                  <span id="packet-batch-export-help" className="fine-print">{batchExportHelp} Maximum 200 derivatives, 5,000 selected page copies, 200 MB of derivative PDFs, and a 100 MB official source.</span>
+                </div>
+              </section>
+            )}
             {project.segments.length ? project.segments.map((segment) => (
               <SegmentCard
                 key={segment.id}
                 project={project}
                 segment={segment}
-                onChange={(next) => updateProject({
-                  ...project,
-                  updatedAt: new Date().toISOString(),
-                  segments: project.segments.map((item) => item.id === next.id ? next : item)
-                })}
+                onChange={(next) => {
+                  const stillExportable = next.kind === "page_range" && (
+                    next.reviewStatus === "researcher_confirmed" || next.reviewStatus === "researcher_corrected"
+                  ) && !project.scan.annotationPages?.some(
+                    (page) => Boolean(next.startPage && next.endPage && page >= next.startPage && page <= next.endPage)
+                  );
+                  if (!stillExportable) {
+                    setSelectedSegmentIds((current) => current.filter((id) => id !== next.id));
+                    if (selectedSegmentIds.includes(next.id)) {
+                      setStatus(`${next.title} was removed from the batch because it is no longer exportable.`);
+                    }
+                  }
+                  setAllowBatchWarnings(false);
+                  updateProject({
+                    ...project,
+                    updatedAt: new Date().toISOString(),
+                    segments: project.segments.map((item) => item.id === next.id ? next : item)
+                  });
+                }}
                 onNavigate={setCurrentPage}
                 onExport={(item) => void exportDerivative(item)}
                 exportBusy={isExporting}
+                selectedForBatch={selectedSegmentIds.includes(segment.id)}
+                onBatchSelection={(selected) => {
+                  setSelectedSegmentIds((current) => selected
+                    ? [...new Set([...current, segment.id])]
+                    : current.filter((id) => id !== segment.id));
+                  setAllowBatchWarnings(false);
+                  setStatus(`${segment.title} ${selected ? "added to" : "removed from"} the batch export selection.`);
+                }}
               />
             )) : <p className="empty-state">No item ranges yet. Add one manually or scan the PDF text for suggestions.</p>}
             {exportProgress > 0 && project.source.byteLength && (

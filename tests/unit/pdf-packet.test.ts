@@ -3,6 +3,7 @@ import { proposePacketSegments } from "../../src/pdf/detect-boundaries";
 import { mergePageRanges, rangesOverlap, splitPageRange, validatePageRange } from "../../src/pdf/page-ranges";
 import { packetManifest, packetManifestCsv, packetManifestMarkdown } from "../../src/pdf/provenance-manifest";
 import { resolvePdfContentUrl } from "../../src/pdf/client";
+import { migrateLegacyPacketAnnotationSafety } from "../../src/pdf/legacy-packet-migration";
 import type { PdfPacketProject } from "../../src/core/types";
 import { pdfPacketProjectSchema } from "../../src/core/validation";
 
@@ -99,6 +100,70 @@ describe("deterministic packet proposals", () => {
 });
 
 describe("packet manifest boundary", () => {
+  it("invalidates pre-annotation-safety scan output without deleting researcher-defined records", () => {
+    const value = project();
+    value.scan = { pagesScanned: 12, pagesWithText: 10 };
+    value.segments = [
+      {
+        id: "legacy-pattern",
+        kind: "page_range",
+        title: "Legacy text-derived suggestion",
+        startPage: 1,
+        endPage: 2,
+        releaseStatus: {
+          status: "not_determined",
+          determinationBasis: "Old pattern",
+          source: "Opstalia",
+          confidence: 0.5,
+          humanReview: true
+        },
+        detectionMethod: "pattern_match",
+        confidence: 0.5,
+        reasons: ["Old scan"],
+        reviewStatus: "researcher_confirmed",
+        createdAt: value.createdAt,
+        updatedAt: value.updatedAt
+      },
+      {
+        id: "researcher-item",
+        kind: "page_range",
+        title: "Researcher-defined item",
+        startPage: 3,
+        endPage: 4,
+        releaseStatus: {
+          status: "not_determined",
+          determinationBasis: "Researcher-defined range",
+          source: "researcher",
+          confidence: 1,
+          humanReview: true
+        },
+        notes: "Latest derivative SHA-256: deadbeef",
+        detectionMethod: "researcher_defined",
+        confidence: 1,
+        reasons: ["Researcher-defined"],
+        reviewStatus: "researcher_confirmed",
+        createdAt: value.createdAt,
+        updatedAt: value.updatedAt
+      }
+    ];
+
+    const result = migrateLegacyPacketAnnotationSafety(value, "2026-09-05T00:00:00.000Z");
+    expect(result).toMatchObject({ migrated: true, removedPatternSuggestions: 1 });
+    expect(result.project.segments).toHaveLength(1);
+    expect(result.project.segments[0]).toMatchObject({
+      id: "researcher-item",
+      reviewStatus: "proposed",
+      derivativeExports: undefined
+    });
+    expect(result.project.segments[0].notes).not.toContain("deadbeef");
+    expect(result.project.scan).toEqual({
+      pagesScanned: 0,
+      pagesWithText: 0,
+      pagesWithAnnotations: 0,
+      annotationPages: []
+    });
+  });
+
   it("rejects out-of-bounds segments and inconsistent scan counts", () => {
     const invalid = project();
     invalid.segments = proposePacketSegments([
@@ -110,6 +175,7 @@ describe("packet manifest boundary", () => {
 
   it("labels derivatives cautiously and neutralizes spreadsheet formulas", () => {
     const value = project();
+    value.name = "Packet\n<script>alert(1)</script>";
     value.segments = [{
       id: "segment-1",
       kind: "page_range",
@@ -137,5 +203,52 @@ describe("packet manifest boundary", () => {
       researcherSuppliedAssociation: { associationVerifiedByOpstalia: false }
     });
     expect(packetManifestCsv(value)).toContain("'=SUM(A1:A2)");
+    expect(packetManifestMarkdown(value)).not.toContain("<script>");
+    expect(packetManifestMarkdown(value)).toContain("&lt;script&gt;");
+  });
+
+  it("rejects derivative receipts that do not match their exact source-page snapshot", () => {
+    const value = project();
+    value.source.sha256 = "a".repeat(64);
+    value.segments = [{
+      id: "segment-1",
+      kind: "page_range",
+      title: "Reviewed item",
+      startPage: 2,
+      endPage: 3,
+      releaseStatus: {
+        status: "not_determined",
+        determinationBasis: "Researcher-created range",
+        source: "researcher",
+        confidence: 1,
+        humanReview: true
+      },
+      derivativeExports: [{
+        id: "receipt-1",
+        exportedAt: "2026-09-04T12:00:00.000Z",
+        fileName: "reviewed-item.pdf",
+        title: "Reviewed item",
+        startPage: 2,
+        endPage: 3,
+        pageCount: 99,
+        sourceSha256: "b".repeat(64),
+        derivativeSha256: "c".repeat(64)
+      }],
+      detectionMethod: "researcher_defined",
+      confidence: 1,
+      reasons: ["Researcher-defined"],
+      reviewStatus: "researcher_confirmed",
+      createdAt: value.createdAt,
+      updatedAt: value.updatedAt
+    }];
+
+    const result = pdfPacketProjectSchema.safeParse(value);
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.error.issues.map((issue) => issue.message)).toEqual(expect.arrayContaining([
+        "A derivative receipt must contain a consistent source-page snapshot",
+        "A derivative receipt must match the packet source fingerprint"
+      ]));
+    }
   });
 });
