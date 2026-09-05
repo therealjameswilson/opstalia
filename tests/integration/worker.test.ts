@@ -214,6 +214,8 @@ describe("Worker request boundary", () => {
 });
 
 describe("Worker presidential-library PDF relay", () => {
+  const OFFICIAL_CHECKSUM = "a".repeat(64);
+  const CHANGED_CHECKSUM = "b".repeat(64);
   const environment = {
     APP_ENV: "production",
     RATE_LIMIT_SALT: "test-only-pdf-relay-placeholder"
@@ -239,39 +241,40 @@ describe("Worker presidential-library PDF relay", () => {
   }
 
   function stubOfficialPdf(options: {
-    headIncludesLength?: boolean;
     getIncludesLength?: boolean;
-    getEtag?: string;
+    getEtags?: Array<string | null>;
+    getChecksums?: Array<string | null>;
+    getLastModifieds?: Array<string | null>;
+    getLengths?: Array<number | null>;
     getBodyLength?: number;
   } = {}) {
     const {
-      headIncludesLength = true,
       getIncludesLength = true,
-      getEtag = "official-etag",
+      getEtags = ["official-etag"],
+      getChecksums = [OFFICIAL_CHECKSUM],
+      getLastModifieds = ["Mon, 03 Aug 2026 00:00:00 GMT"],
+      getLengths,
       getBodyLength = 1000
     } = options;
+    let getIndex = 0;
     const mock = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
       if (init?.method === "HEAD") {
-        const responseHeaders = new Headers({
-          "Content-Type": "application/pdf",
-          "Accept-Ranges": "bytes",
-          ETag: "official-etag",
-          "Last-Modified": "Mon, 03 Aug 2026 00:00:00 GMT"
-        });
-        if (headIncludesLength) responseHeaders.set("Content-Length", "1000");
-        return new Response(null, {
-          status: 200,
-          headers: responseHeaders
-        });
+        throw new Error("The PDF relay should not depend on a method-specific HEAD response.");
       }
       const full = new Uint8Array(getBodyLength);
       full.set(new TextEncoder().encode("%PDF-"));
-      const responseHeaders = new Headers({
-        "Content-Type": "application/pdf",
-        ETag: getEtag,
-        "Last-Modified": "Mon, 03 Aug 2026 00:00:00 GMT"
-      });
-      if (getIncludesLength) responseHeaders.set("Content-Length", "1000");
+      const etag = getEtags[Math.min(getIndex, getEtags.length - 1)];
+      const checksum = getChecksums[Math.min(getIndex, getChecksums.length - 1)];
+      const lastModified = getLastModifieds[Math.min(getIndex, getLastModifieds.length - 1)];
+      const declaredLength = getLengths?.[Math.min(getIndex, getLengths.length - 1)];
+      getIndex += 1;
+      const responseHeaders = new Headers({ "Content-Type": "application/pdf" });
+      if (etag) responseHeaders.set("ETag", etag);
+      if (checksum) responseHeaders.set("X-Amz-Meta-Checksum-Sha256", checksum);
+      if (lastModified) responseHeaders.set("Last-Modified", lastModified);
+      if (declaredLength !== null && (declaredLength !== undefined || getIncludesLength)) {
+        responseHeaders.set("Content-Length", String(declaredLength ?? 1000));
+      }
       return new Response(full, {
         status: 200,
         headers: responseHeaders
@@ -290,7 +293,7 @@ describe("Worker presidential-library PDF relay", () => {
   });
 
   it("streams under the fixed ceiling when Worker subrequests omit Content-Length", async () => {
-    stubOfficialPdf({ headIncludesLength: false, getIncludesLength: false });
+    stubOfficialPdf({ getIncludesLength: false });
     const response = await worker.fetch(sessionRequest("198.51.100.92"), environment);
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toMatchObject({
@@ -314,7 +317,7 @@ describe("Worker presidential-library PDF relay", () => {
       etag: string;
     };
     expect(session).toMatchObject({
-      byteLength: null,
+      byteLength: 1000,
       maxByteLength: 100 * 1024 * 1024,
       acceptRanges: false,
       deliveryMode: "bounded_full_file",
@@ -348,6 +351,177 @@ describe("Worker presidential-library PDF relay", () => {
       expect(new Headers(init?.headers).get("Accept-Encoding")).toBe("identity");
       expect(new Headers(init?.headers).has("Range")).toBe(false);
     }
+  });
+
+  it("uses the signature GET as the authoritative representation and never depends on HEAD", async () => {
+    const fetchMock = stubOfficialPdf({
+      getEtags: ["signature-get-etag", "signature-get-etag"],
+      getChecksums: [null, null]
+    });
+    const sessionResponse = await worker.fetch(sessionRequest("198.51.100.95"), environment);
+    expect(sessionResponse.status).toBe(200);
+    const session = await sessionResponse.json() as { contentUrl: string; byteLength: number; etag: string };
+    expect(session).toMatchObject({ byteLength: 1000, etag: "signature-get-etag" });
+
+    const contentResponse = await worker.fetch(
+      new Request(`https://opstalia-api.example${session.contentUrl}`, {
+        headers: {
+          Origin: "https://therealjameswilson.github.io",
+          "CF-Connecting-IP": "198.51.100.96",
+          "X-Opstalia-Packet-View": "1"
+        }
+      }),
+      environment
+    );
+    expect(contentResponse.status).toBe(200);
+    expect((await contentResponse.arrayBuffer()).byteLength).toBe(1000);
+    expect(fetchMock.mock.calls.every(([, init]) => init?.method !== "HEAD")).toBe(true);
+  });
+
+  it("prefers the official object checksum when CDN ETags vary between GETs", async () => {
+    stubOfficialPdf({
+      getEtags: ["signature-get-etag", "relay-get-etag"],
+      getChecksums: [OFFICIAL_CHECKSUM, OFFICIAL_CHECKSUM]
+    });
+    const sessionResponse = await worker.fetch(sessionRequest("198.51.100.97"), environment);
+    const session = await sessionResponse.json() as { contentUrl: string };
+    const contentResponse = await worker.fetch(
+      new Request(`https://opstalia-api.example${session.contentUrl}`, {
+        headers: {
+          Origin: "https://therealjameswilson.github.io",
+          "CF-Connecting-IP": "198.51.100.98",
+          "X-Opstalia-Packet-View": "1"
+        }
+      }),
+      environment
+    );
+    expect(contentResponse.status).toBe(200);
+    expect(contentResponse.headers.get("ETag")).toBe("relay-get-etag");
+    expect((await contentResponse.arrayBuffer()).byteLength).toBe(1000);
+  });
+
+  it("rejects a changed official object checksum before streaming", async () => {
+    stubOfficialPdf({
+      getChecksums: [OFFICIAL_CHECKSUM, CHANGED_CHECKSUM]
+    });
+    const sessionResponse = await worker.fetch(sessionRequest("198.51.100.99"), environment);
+    const session = await sessionResponse.json() as { contentUrl: string };
+    const contentResponse = await worker.fetch(
+      new Request(`https://opstalia-api.example${session.contentUrl}`, {
+        headers: {
+          Origin: "https://therealjameswilson.github.io",
+          "CF-Connecting-IP": "198.51.100.100",
+          "X-Opstalia-Packet-View": "1"
+        }
+      }),
+      environment
+    );
+    expect(contentResponse.status).toBe(409);
+    expect(await contentResponse.text()).toContain("PDF_SOURCE_CHANGED");
+  });
+
+  it("falls back to a stable ETag when object-checksum metadata disappears", async () => {
+    stubOfficialPdf({
+      getChecksums: [OFFICIAL_CHECKSUM, null]
+    });
+    const sessionResponse = await worker.fetch(sessionRequest("198.51.100.107"), environment);
+    const session = await sessionResponse.json() as { contentUrl: string };
+    const contentResponse = await worker.fetch(
+      new Request(`https://opstalia-api.example${session.contentUrl}`, {
+        headers: {
+          Origin: "https://therealjameswilson.github.io",
+          "CF-Connecting-IP": "198.51.100.108",
+          "X-Opstalia-Packet-View": "1"
+        }
+      }),
+      environment
+    );
+    expect(contentResponse.status).toBe(200);
+    expect((await contentResponse.arrayBuffer()).byteLength).toBe(1000);
+  });
+
+  it("remains bounded when the official GETs expose no representation validators or length", async () => {
+    stubOfficialPdf({
+      getIncludesLength: false,
+      getEtags: [null, null],
+      getChecksums: [null, null],
+      getLastModifieds: [null, null]
+    });
+    const sessionResponse = await worker.fetch(sessionRequest("198.51.100.109"), environment);
+    const session = await sessionResponse.json() as { contentUrl: string; byteLength: null };
+    expect(session.byteLength).toBeNull();
+    const contentResponse = await worker.fetch(
+      new Request(`https://opstalia-api.example${session.contentUrl}`, {
+        headers: {
+          Origin: "https://therealjameswilson.github.io",
+          "CF-Connecting-IP": "198.51.100.110",
+          "X-Opstalia-Packet-View": "1"
+        }
+      }),
+      environment
+    );
+    expect(contentResponse.status).toBe(200);
+    expect((await contentResponse.arrayBuffer()).byteLength).toBe(1000);
+  });
+
+  it("rejects a changed same-method ETag when no stronger checksum is available", async () => {
+    stubOfficialPdf({
+      getEtags: ["signature-get-etag", "changed-relay-etag"],
+      getChecksums: [null, null]
+    });
+    const sessionResponse = await worker.fetch(sessionRequest("198.51.100.101"), environment);
+    const session = await sessionResponse.json() as { contentUrl: string };
+    const contentResponse = await worker.fetch(
+      new Request(`https://opstalia-api.example${session.contentUrl}`, {
+        headers: {
+          Origin: "https://therealjameswilson.github.io",
+          "CF-Connecting-IP": "198.51.100.102",
+          "X-Opstalia-Packet-View": "1"
+        }
+      }),
+      environment
+    );
+    expect(contentResponse.status).toBe(409);
+  });
+
+  it("pins the signature GET length and accepts an omitted relay Content-Length", async () => {
+    stubOfficialPdf({
+      getLengths: [1000, null]
+    });
+    const sessionResponse = await worker.fetch(sessionRequest("198.51.100.103"), environment);
+    const session = await sessionResponse.json() as { contentUrl: string; byteLength: number };
+    expect(session.byteLength).toBe(1000);
+    const contentResponse = await worker.fetch(
+      new Request(`https://opstalia-api.example${session.contentUrl}`, {
+        headers: {
+          Origin: "https://therealjameswilson.github.io",
+          "CF-Connecting-IP": "198.51.100.104",
+          "X-Opstalia-Packet-View": "1"
+        }
+      }),
+      environment
+    );
+    expect(contentResponse.status).toBe(200);
+    expect((await contentResponse.arrayBuffer()).byteLength).toBe(1000);
+  });
+
+  it("rejects a changed declared length before streaming", async () => {
+    stubOfficialPdf({
+      getLengths: [1000, 999]
+    });
+    const sessionResponse = await worker.fetch(sessionRequest("198.51.100.105"), environment);
+    const session = await sessionResponse.json() as { contentUrl: string };
+    const contentResponse = await worker.fetch(
+      new Request(`https://opstalia-api.example${session.contentUrl}`, {
+        headers: {
+          Origin: "https://therealjameswilson.github.io",
+          "CF-Connecting-IP": "198.51.100.106",
+          "X-Opstalia-Packet-View": "1"
+        }
+      }),
+      environment
+    );
+    expect(contentResponse.status).toBe(409);
   });
 
   it("permits one explicitly marked bounded derivative stream and pins its validator", async () => {

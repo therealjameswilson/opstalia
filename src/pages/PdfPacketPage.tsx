@@ -1465,12 +1465,16 @@ export default function PdfPacketPage() {
                 }}
               />
             )) : <p className="empty-state">No item ranges yet. Add one manually or scan the PDF text for suggestions.</p>}
+            {isExporting && (
+              <button className="text-button" onClick={() => exportControllerRef.current?.abort()}>
+                Cancel derivative export
+              </button>
+            )}
             {exportProgress > 0 && project.source.byteLength && (
               <div>
                 <progress value={exportProgress} max={project.source.byteLength} aria-label="Source download progress for derivative export">
                   {bytesLabel(exportProgress)} of {bytesLabel(project.source.byteLength)}
                 </progress>
-                {isExporting && <button className="text-button" onClick={() => exportControllerRef.current?.abort()}>Cancel derivative export</button>}
               </div>
             )}
             <p id="packet-export-limit" className="fine-print"><strong>Browser safety limit:</strong> the public Packet Lab admits official PDFs up to 100 MB. Opening and derivative export each transfer the complete official source into browser memory; low-memory devices may fail sooner.</p>

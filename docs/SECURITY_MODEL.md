@@ -111,7 +111,7 @@ flowchart LR
     I["IndexedDB<br/>manifest only when non-private"]
 
     B -->|"POST researcher-supplied NAID + canonical record/PDF URLs + acknowledgement"| W
-    W -->|"HEAD + full GET; read 5-byte prefix, then cancel; no redirects"| N
+    W -->|"full GET; read 5-byte prefix, then cancel; no redirects"| N
     W -->|"two-hour HMAC-signed session"| B
     P -->|"GET one bounded full stream with signed token"| W
     W -->|"full GET; hard 100 MiB stream cap"| N
@@ -234,15 +234,18 @@ path remains `/opstalia/`.
    submitted numeric NAID. Domain approval by itself is insufficient. This is
    URL-form and numeric-consistency validation: the Worker does not fetch the
    Catalog record or prove that it lists the PDF.
-4. The Worker performs a no-redirect `HEAD`, then starts a no-redirect full
-   `GET`, reads exactly the first five bytes needed to verify `%PDF-`, and
-   cancels that admission body. It requires a supported PDF content type. A
-   Worker-visible length greater than 100 MiB is rejected, but NARA or
-   Cloudflare may omit a usable length, ETag, or Last-Modified value.
+4. The Worker starts a no-redirect full `GET`, validates its content type and
+   declared size, reads exactly the first five bytes needed to verify `%PDF-`,
+   and cancels that admission body. A Worker-visible length greater than 100
+   MiB is rejected, but NARA or Cloudflare may omit a usable length or
+   validator. The signature-checked GET is authoritative; Opstalia does not
+   compare method-specific HEAD and GET metadata as though it proved a byte
+   change.
 5. If admission succeeds, the Worker creates a two-hour HMAC-SHA-256 token using
    the server-side `RATE_LIMIT_SALT`. Its signed payload contains the source ID,
-   NAID, canonical record and PDF URLs, any available ETag/last-modified
-   validators, and expiry. Signing those values together prevents later
+   NAID, canonical record and PDF URLs, GET-declared length, any available
+   official object SHA-256 metadata or ETag/last-modified validators, and
+   expiry. Signing those values together prevents later
    tampering but does not establish an archival association. The token is
    integrity-protected, not encrypted, and contains no server secret. Rotating
    `RATE_LIMIT_SALT` invalidates active sessions.
@@ -250,8 +253,10 @@ path remains `/opstalia/`.
    The content route verifies signature and expiry, rejects every `Range` header,
    and cannot accept or change the upstream URL.
 7. The Worker starts a new no-redirect full `GET` to the signed NARA URL. It
-   requires status `200` and an accepted content type, checks any available
-   session length or validator, and passes the body through with no-store
+   requires status `200` and an accepted content type, requires any repeated
+   declared length to match, prefers a mutually available official object
+   SHA-256 value, otherwise compares same-method ETag or Last-Modified, and
+   passes the body through with no-store
    headers. A transform terminates the response after 100 MiB even when neither
    NARA nor Cloudflare exposed a usable `Content-Length`. The Worker does not
    retain the stream in an application buffer, durable store, cache, or log.

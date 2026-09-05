@@ -108,8 +108,9 @@ adapters or a general fetch proxy.
   make one timeout-bounded upstream attempt.
 - The frontend and Worker use `no-store`; the Worker disables Cloudflare
   response caching for every upstream call.
-- Packet Lab admission sends `HEAD`, then starts a full `GET`, reads only the
-  five-byte PDF signature prefix, and cancels the admission body. Opening and
+- Packet Lab admission starts a full `GET`, validates its type and declared
+  size, reads only the five-byte PDF signature prefix, and cancels the
+  admission body. Opening and
   derivative routes reject ranges, pass one complete response through without
   application buffering, and terminate a stream above 100 MiB.
 - Source failures are isolated. A failure does not broaden the source set or
@@ -185,10 +186,13 @@ record URL. URL and numeric consistency checks do not prove that the record
 lists the PDF; the researcher must confirm that association on the official
 record page.
 
-During admission the Worker sends `HEAD`, then starts a full `GET`, reads only
-the five-byte `%PDF-` prefix, and cancels the body. A Worker-visible length or
-ETag may be absent. Opening makes a separate full-file request and passes one
-copy through to browser memory under a hard 100 MiB streaming cap. The browser
+During admission the Worker starts a full `GET`, validates its type and
+declared size, reads only the five-byte `%PDF-` prefix, and cancels the body.
+A Worker-visible length, official object checksum, ETag, or Last-Modified value
+may be absent. The signature-checked GET is authoritative; method-specific
+HEAD/GET metadata is not treated as proof of a file change. Opening makes a
+separate full-file request and passes one copy through to browser memory under
+a hard 100 MiB streaming cap. The browser
 computes actual received length and SHA-256 before PDF.js parses and slices the
 completed bytes locally. Derivative export makes a disclosed second full-source
 transfer and proceeds only when its newly computed source SHA-256 matches the
@@ -197,8 +201,9 @@ opening hash.
 The Worker does not parse, rasterize, OCR, transform, cache, or store a PDF. It
 uses no R2, KV, D1, Durable Object, PDF cache, or response cache. Relay responses
 are `no-store`; application code does not log their bodies. PDF.js disables
-script evaluation and XFA, omits annotations from page rendering, and bounds
-image, scan, and derivative work. Sources above 100 MiB are unsupported. Do not
+script evaluation and XFA, renders annotation appearances only into an inert
+canvas, suppresses embedded-text display on annotation-bearing pages, and
+bounds image, scan, and derivative work. Sources above 100 MiB are unsupported. Do not
 bypass browser warnings or use a file whose provenance cannot be verified.
 
 See [`docs/REDACTION_ANALYSIS.md`](docs/REDACTION_ANALYSIS.md).

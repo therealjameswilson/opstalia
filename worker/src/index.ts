@@ -156,7 +156,7 @@ const worker = {
         ok: true,
         ready: true,
         service: "opstalia-api",
-        version: "1.2.0",
+        version: "1.3.0",
         naraSecretConfigured: Boolean(environment.NARA_API_KEY),
         govInfoSecretConfigured: Boolean(environment.GOVINFO_API_KEY),
         pdfRelayConfigured: Boolean(environment.RATE_LIMIT_SALT && environment.RATE_LIMIT_SALT.length >= 16),

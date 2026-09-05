@@ -18,13 +18,14 @@ All notable changes to Opstalia are documented in this file. The project follows
 - Added a one-time browser-local safety migration for pre-1.3 packet registers: legacy text-derived pattern suggestions are removed, earlier review decisions and derivative receipts are invalidated, and researcher-defined records are retained for re-review.
 - Moved source-fingerprint enforcement inside the isolated derivative processor, before PDF parsing and page copying; register edits are locked and rechecked while an export runs.
 - Hardened packet CSV formula-prefix handling and Markdown escaping.
+- Made the signature-checked admission `GET` the authoritative PDF representation, eliminating false source-change failures caused by method-specific `HEAD`/`GET` validators. Sessions now pin the GET-declared length and prefer NARA's object SHA-256 metadata when available before falling back to same-method ETag or Last-Modified checks.
 - Updated the supported toolchain and dependency set, removing the reported high-severity transitive `nanoid` advisory. `pdfjs-dist` remains deliberately pinned to the reviewed 5.4 line pending a separate 6.x migration.
 
 ### Changed
 
 - Made checked-in demonstration projects opt-in instead of automatically presenting their records as browser-saved research.
 - Added a one-time, fixture-only cleanup for demonstration projects persisted by earlier builds; ordinary researcher projects and saved records are left untouched.
-- Kept the compatible Cloudflare search/relay API at backend revision 1.2.0; version 1.3.0 requires no new Worker routes, bindings, secrets, or source-key changes.
+- Advanced the compatible Cloudflare search/relay API to backend revision 1.3.0; no new routes, bindings, secrets, or source-key changes are required.
 
 ## [1.2.0] - 2026-07-30
 
