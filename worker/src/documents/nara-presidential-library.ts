@@ -13,7 +13,8 @@ const tokenPayloadSchema = z.object({
   naraNaid: z.string().regex(/^\d{1,20}$/),
   officialPdfUrl: z.string().url().max(4096),
   officialRecordUrl: z.string().url().max(4096),
-  byteLength: z.number().int().positive().max(MAX_PACKET_BYTES).optional(),
+  byteLength: z.number().int().min(5).max(MAX_PACKET_BYTES).optional(),
+  officialChecksumSha256: z.string().regex(/^[a-f0-9]{64}$/).optional(),
   etag: z.string().max(500).optional(),
   lastModified: z.string().max(200).optional(),
   expiresAt: z.number().int().positive()
@@ -117,6 +118,11 @@ function isPdfContentType(value: string | null): boolean {
   return mediaType === "application/pdf" || mediaType === "application/octet-stream";
 }
 
+function officialSha256(value: string | null): string | undefined {
+  const normalized = value?.trim().toLocaleLowerCase();
+  return normalized && /^[a-f0-9]{64}$/.test(normalized) ? normalized : undefined;
+}
+
 async function fetchNoRedirect(url: string, init: RequestInit): Promise<Response> {
   const headers = new Headers(init.headers);
   headers.set("Accept-Encoding", "identity");
@@ -137,30 +143,12 @@ async function fetchNoRedirect(url: string, init: RequestInit): Promise<Response
 async function probeOfficialPdf(
   officialPdfUrl: string,
   signal: AbortSignal
-): Promise<{ byteLength?: number; etag?: string; lastModified?: string }> {
-  const head = await fetchNoRedirect(officialPdfUrl, {
-    method: "HEAD",
-    headers: { Accept: "application/pdf" },
-    signal
-  });
-  if (!head.ok || !isPdfContentType(head.headers.get("Content-Type"))) {
-    await head.body?.cancel();
-    throw new PdfRelayError("The official locator did not return a supported PDF.", 422, "PDF_UPSTREAM_INVALID");
-  }
-  const headLengthHeader = head.headers.get("Content-Length");
-  const reportedHeadLength = headLengthHeader === null ? undefined : Number(headLengthHeader);
-  if (reportedHeadLength !== undefined && (
-    !Number.isSafeInteger(reportedHeadLength) ||
-    reportedHeadLength < 0 ||
-    reportedHeadLength > MAX_PACKET_BYTES
-  )) {
-    await head.body?.cancel();
-    throw new PdfRelayError("The official PDF exceeds the 100 MB browser-workspace limit or did not report a safe size.", 413, "PDF_TOO_LARGE");
-  }
-  const headEtag = head.headers.get("ETag") ?? undefined;
-  const headLastModified = head.headers.get("Last-Modified") ?? undefined;
-  await head.body?.cancel();
-
+): Promise<{
+  byteLength?: number;
+  officialChecksumSha256?: string;
+  etag?: string;
+  lastModified?: string;
+}> {
   const signature = await fetchNoRedirect(officialPdfUrl, {
     method: "GET",
     headers: { Accept: "application/pdf" },
@@ -178,7 +166,7 @@ async function probeOfficialPdf(
   const signatureLength = signatureLengthHeader === null ? undefined : Number(signatureLengthHeader);
   if (signatureLength !== undefined && (
     !Number.isSafeInteger(signatureLength) ||
-    signatureLength < 0 ||
+    signatureLength < 5 ||
     signatureLength > MAX_PACKET_BYTES
   )) {
     await signature.body?.cancel();
@@ -186,13 +174,7 @@ async function probeOfficialPdf(
   }
   const signatureEtag = signature.headers.get("ETag") ?? undefined;
   const signatureLastModified = signature.headers.get("Last-Modified") ?? undefined;
-  if (
-    (headEtag && signatureEtag !== headEtag) ||
-    (!headEtag && headLastModified && signatureLastModified !== headLastModified)
-  ) {
-    await signature.body?.cancel();
-    throw new PdfRelayError("The official source changed during admission. Reopen the packet and try again.", 409, "PDF_SOURCE_CHANGED");
-  }
+  const signatureChecksumSha256 = officialSha256(signature.headers.get("X-Amz-Meta-Checksum-Sha256"));
   if (!signature.body) {
     throw new PdfRelayError("The official response did not include PDF bytes.", 502, "PDF_BODY_MISSING");
   }
@@ -214,9 +196,32 @@ async function probeOfficialPdf(
     throw new PdfRelayError("The official response did not contain a PDF signature.", 422, "PDF_SIGNATURE_INVALID");
   }
   return {
-    etag: signatureEtag ?? headEtag,
-    lastModified: signatureLastModified ?? headLastModified
+    byteLength: signatureLength,
+    officialChecksumSha256: signatureChecksumSha256,
+    etag: signatureEtag,
+    lastModified: signatureLastModified
   };
+}
+
+function sourceRepresentationChanged(
+  payload: TokenPayload,
+  headers: Headers,
+  declaredLength: number | undefined
+): boolean {
+  if (payload.byteLength !== undefined && declaredLength !== undefined && payload.byteLength !== declaredLength) {
+    return true;
+  }
+  const upstreamChecksum = officialSha256(headers.get("X-Amz-Meta-Checksum-Sha256"));
+  if (payload.officialChecksumSha256 && upstreamChecksum) {
+    return payload.officialChecksumSha256 !== upstreamChecksum;
+  }
+  const upstreamEtag = headers.get("ETag") ?? undefined;
+  if (payload.etag && upstreamEtag) return payload.etag !== upstreamEtag;
+  const upstreamLastModified = headers.get("Last-Modified") ?? undefined;
+  if (payload.lastModified && upstreamLastModified) {
+    return payload.lastModified !== upstreamLastModified;
+  }
+  return false;
 }
 
 function boundedLengthStream(body: ReadableStream<Uint8Array>, expectedLength?: number): ReadableStream<Uint8Array> {
@@ -268,6 +273,7 @@ export async function createPresidentialLibraryPdfSession(input: {
     officialPdfUrl: admission.canonicalPdfUrl,
     officialRecordUrl: admission.canonicalRecordUrl,
     ...(metadata.byteLength === undefined ? {} : { byteLength: metadata.byteLength }),
+    officialChecksumSha256: metadata.officialChecksumSha256,
     etag: metadata.etag,
     lastModified: metadata.lastModified,
     expiresAt
@@ -320,17 +326,14 @@ export async function relayPresidentialLibraryPdf(input: {
     !upstream.body ||
     (declaredLength !== undefined && (
       !Number.isSafeInteger(declaredLength) ||
-      declaredLength < 0 ||
+      declaredLength < 5 ||
       declaredLength > MAX_PACKET_BYTES
     ))
   ) {
     await upstream.body?.cancel();
     throw new PdfRelayError("The official host returned an unbounded or inconsistent PDF length.", 502, "PDF_LENGTH_INVALID");
   }
-  if (
-    (payload.etag && upstream.headers.get("ETag") !== payload.etag) ||
-    (!payload.etag && payload.lastModified && upstream.headers.get("Last-Modified") !== payload.lastModified)
-  ) {
+  if (sourceRepresentationChanged(payload, upstream.headers, declaredLength)) {
     await upstream.body.cancel();
     throw new PdfRelayError("The official source changed after this packet session opened. Reopen the packet before continuing.", 409, "PDF_SOURCE_CHANGED");
   }
@@ -342,6 +345,6 @@ export async function relayPresidentialLibraryPdf(input: {
   outputHeaders.set("Accept-Ranges", "none");
   outputHeaders.set("Content-Disposition", "inline");
   outputHeaders.set("X-Opstalia-Source", "nara-presidential-library-packet");
-  const expectedLength = declaredLength !== undefined && declaredLength >= 5 ? declaredLength : undefined;
+  const expectedLength = payload.byteLength ?? (declaredLength !== undefined && declaredLength >= 5 ? declaredLength : undefined);
   return new Response(boundedLengthStream(upstream.body, expectedLength), { status: upstream.status, headers: outputHeaders });
 }

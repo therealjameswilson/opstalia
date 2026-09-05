@@ -1,9 +1,10 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { proposePacketSegments } from "../../src/pdf/detect-boundaries";
 import { mergePageRanges, rangesOverlap, splitPageRange, validatePageRange } from "../../src/pdf/page-ranges";
 import { packetManifest, packetManifestCsv, packetManifestMarkdown } from "../../src/pdf/provenance-manifest";
 import { resolvePdfContentUrl } from "../../src/pdf/client";
 import { migrateLegacyPacketAnnotationSafety } from "../../src/pdf/legacy-packet-migration";
+import { downloadBoundedSourcePdf } from "../../src/pdf/pdf-engine";
 import type { PdfPacketProject } from "../../src/core/types";
 import { pdfPacketProjectSchema } from "../../src/core/validation";
 
@@ -51,6 +52,8 @@ describe("PDF packet page ranges", () => {
 });
 
 describe("PDF relay session URLs", () => {
+  afterEach(() => vi.unstubAllGlobals());
+
   it("accepts only the Worker's bounded relative content route", () => {
     const token = "payload_token.signature_token";
     expect(resolvePdfContentUrl(`/api/pdf/content?token=${token}`, "https://api.example.test")).toBe(
@@ -60,6 +63,19 @@ describe("PDF relay session URLs", () => {
       .toThrow(/invalid content path/i);
     expect(() => resolvePdfContentUrl("/api/pdf/content?token=x.y&next=https://evil.example", "https://api.example.test"))
       .toThrow(/invalid content path/i);
+  });
+
+  it("preserves a bounded Worker explanation when a content stream is rejected", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({
+      error: "PDF_SOURCE_CHANGED",
+      message: "The official source changed after this packet session opened. Reopen the packet before continuing."
+    }), {
+      status: 409,
+      headers: { "Content-Type": "application/json" }
+    })));
+
+    await expect(downloadBoundedSourcePdf("https://api.example.test/api/pdf/content?token=x.y", 1000))
+      .rejects.toThrow(/official source changed.*reopen.*409/i);
   });
 });
 

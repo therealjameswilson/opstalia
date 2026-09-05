@@ -15,8 +15,49 @@ export interface PageTextInspection {
 }
 
 export const MAX_EMBEDDED_TEXT_CHARS_PER_PAGE = 50_000;
+const MAX_RELAY_ERROR_BYTES = 4_096;
 
 let pdfJsPromise: Promise<typeof import("pdfjs-dist")> | undefined;
+
+async function relayDownloadError(response: Response): Promise<Error> {
+  const fallback = `Unable to download the official source (${response.status}).`;
+  if (!response.body) return new Error(fallback);
+  const reader = response.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let received = 0;
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      received += value.byteLength;
+      if (received > MAX_RELAY_ERROR_BYTES) {
+        await reader.cancel();
+        return new Error(fallback);
+      }
+      chunks.push(value);
+    }
+  } catch {
+    return new Error(fallback);
+  } finally {
+    reader.releaseLock();
+  }
+  const bytes = new Uint8Array(received);
+  let offset = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  try {
+    const value = JSON.parse(new TextDecoder().decode(bytes)) as { message?: unknown };
+    if (typeof value.message === "string") {
+      const message = value.message.replace(/\s+/g, " ").trim().slice(0, 500);
+      if (message) return new Error(`${message} (${response.status})`);
+    }
+  } catch {
+    // The relay may return a non-JSON platform error. Keep the bounded fallback.
+  }
+  return new Error(fallback);
+}
 
 async function sha256Hex(buffer: ArrayBuffer): Promise<string> {
   const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", buffer));
@@ -228,7 +269,7 @@ async function downloadBoundedPdf(
     signal,
     headers: { [purposeHeader]: "1" }
   });
-  if (response.status !== 200 || !response.body) throw new Error(`Unable to download the official source (${response.status}).`);
+  if (response.status !== 200 || !response.body) throw await relayDownloadError(response);
   const declaredHeader = response.headers.get("Content-Length");
   const declared = declaredHeader === null ? undefined : Number(declaredHeader);
   if (declared !== undefined && (

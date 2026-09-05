@@ -37,7 +37,7 @@ Your browser -- user-initiated navigation, including prepared terms when shown -
                                                                                   and its service providers
 
 Your browser -- acknowledged NAID + canonical NARA record/PDF locators --> Cloudflare Worker
-Cloudflare Worker -- HEAD, then prefix-only GET/cancel --> approved NARA PDF
+Cloudflare Worker -- prefix-only signature GET/cancel --> approved NARA PDF
 approved NARA PDF -- one complete bounded copy through Cloudflare --> browser memory
 approved NARA PDF -- optional second complete derivative copy through Cloudflare --> browser memory
 ```
@@ -62,7 +62,7 @@ the researcher copies or retries them. No manual source opens automatically.
 | Worker searches NARA | NARA Catalog API | Query text, limit, API credential, and supported filters such as NAID, dates, title, creator, geography, and material type |
 | Worker searches GovInfo | GovInfo Search Service | Query text, page size/cursor, sort, and the server-side GovInfo API credential |
 | Worker searches NTRS or OSTI | NASA NTRS or OSTI.GOV | Query text and supported source-specific metadata filters; no Opstalia source API key |
-| Admit a Packet Lab source | Cloudflare Worker, then NARA Catalog media | Numeric NAID, researcher-supplied canonical record URL, direct approved PDF URL, acknowledgement, ordinary network metadata; the Worker sends `HEAD`, then reads only the five-byte PDF signature prefix from a full GET and cancels that response |
+| Admit a Packet Lab source | Cloudflare Worker, then NARA Catalog media | Numeric NAID, researcher-supplied canonical record URL, direct approved PDF URL, acknowledgement, ordinary network metadata; the Worker reads only the five-byte PDF signature prefix from a full GET and cancels that response |
 | Open a Packet Lab source | Cloudflare Worker and NARA Catalog media | A short-lived signed content token and packet-view purpose; one complete official PDF, hard-limited to 100 MiB, streams NARA → Cloudflare → browser memory |
 | Create a Packet Lab derivative | Cloudflare Worker and NARA Catalog media | The signed token and derivative purpose; a second complete source copy, hard-limited to 100 MiB, streams NARA → Cloudflare → browser memory so its SHA-256 can be matched before local extraction |
 | Open a manual handoff | Selected official repository and service providers used by that site | Normal browser request data and any prepared search terms/filters included in the displayed official URL; local research notes are excluded |
@@ -167,10 +167,11 @@ excluded from browser persistence and exports except for generated
 NAID/official-URL locators. Permissible public GovInfo, NTRS, and OSTI response
 records may be stored in a non-private browser project for provenance.
 
-For the Packet Lab, the Worker first sends a no-redirect `HEAD`, then starts a
-no-redirect full `GET`, reads only the five-byte `%PDF-` prefix, and cancels that
-admission response. A length or ETag visible to the Worker is retained only in
-the short-lived signed session and may be absent. Opening then makes a separate
+For the Packet Lab, the Worker starts a no-redirect full `GET`, validates its
+type and declared size, reads only the five-byte `%PDF-` prefix, and cancels that
+admission response. Its declared length and any available official object
+checksum, ETag, or Last-Modified value are retained only in the short-lived
+signed session and may be absent. Opening then makes a separate
 full-source request and passes one complete copy through to browser memory,
 terminating the stream above 100 MiB. The browser computes actual received
 length and SHA-256. Derivative creation makes a second complete transfer and

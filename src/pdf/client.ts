@@ -13,7 +13,7 @@ const contentPathSchema = z.string().max(16_000).regex(
 const sessionSchema = z.object({
   contentUrl: contentPathSchema,
   expiresAt: z.string().max(80),
-  byteLength: z.number().int().positive().max(MAX_BROWSER_PACKET_BYTES).nullable(),
+  byteLength: z.number().int().min(5).max(MAX_BROWSER_PACKET_BYTES).nullable(),
   maxByteLength: z.literal(MAX_BROWSER_PACKET_BYTES),
   etag: z.string().max(500).optional(),
   lastModified: z.string().max(200).optional(),
